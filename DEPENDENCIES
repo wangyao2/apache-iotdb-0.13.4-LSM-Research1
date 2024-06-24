@@ -1,0 +1,45 @@
+// ------------------------------------------------------------------
+// Transitive dependencies of this project determined from the
+// maven pom organized by organization.
+// ------------------------------------------------------------------
+
+Apache IoTDB Project Parent POM
+
+
+From: 'Eclipse Foundation' (https://www.eclipse.org)
+  - Jakarta Activation (https://github.com/eclipse-ee4j/jaf/jakarta.activation) com.sun.activation:jakarta.activation:jar:2.0.1
+    License: EDL 1.0  (http://www.eclipse.org/org/documents/edl-v10.php)
+  - istack common utility code runtime (https://projects.eclipse.org/projects/ee4j/istack-commons/istack-commons-runtime) com.sun.istack:istack-commons-runtime:jar:4.0.1
+    License: Eclipse Distribution License - v 1.0  (http://www.eclipse.org/org/documents/edl-v10.php)
+  - Jakarta XML Binding API (https://github.com/eclipse-ee4j/jaxb-api/jakarta.xml.bind-api) jakarta.xml.bind:jakarta.xml.bind-api:jar:3.0.1
+    License: Eclipse Distribution License - v 1.0  (http://www.eclipse.org/org/documents/edl-v10.php)
+  - JAXB Core (https://eclipse-ee4j.github.io/jaxb-ri/) org.glassfish.jaxb:jaxb-core:jar:3.0.2
+    License: Eclipse Distribution License - v 1.0  (http://www.eclipse.org/org/documents/edl-v10.php)
+  - JAXB Runtime (https://eclipse-ee4j.github.io/jaxb-ri/) org.glassfish.jaxb:jaxb-runtime:jar:3.0.2
+    License: Eclipse Distribution License - v 1.0  (http://www.eclipse.org/org/documents/edl-v10.php)
+  - TXW2 Runtime (https://eclipse-ee4j.github.io/jaxb-ri/) org.glassfish.jaxb:txw2:jar:3.0.2
+    License: Eclipse Distribution License - v 1.0  (http://www.eclipse.org/org/documents/edl-v10.php)
+
+From: 'GlassFish Community' (https://javaee.github.io/glassfish)
+  - javax.annotation API (http://jcp.org/en/jsr/detail?id=250) javax.annotation:javax.annotation-api:jar:1.3.2
+    License: CDDL + GPLv2 with classpath exception  (https://github.com/javaee/javax.annotation/blob/master/LICENSE)
+
+From: 'Oracle' (http://www.oracle.com)
+  - JavaBeans Activation Framework API jar (http://java.net/all/javax.activation-api/) javax.activation:javax.activation-api:jar:1.2.0
+    License: CDDL/GPLv2+CE  (https://github.com/javaee/activation/blob/master/LICENSE.txt)
+
+From: 'Oracle Corporation' (http://www.oracle.com/)
+  - jaxb-api (https://github.com/javaee/jaxb-spec/jaxb-api) javax.xml.bind:jaxb-api:jar:2.4.0-b180830.0359
+    License: CDDL 1.1  (https://oss.oracle.com/licenses/CDDL+GPL-1.1)    License: GPL2 w/ CPE  (https://oss.oracle.com/licenses/CDDL+GPL-1.1)
+
+From: 'QOS.ch' (http://www.qos.ch)
+  - Logback Classic Module (http://logback.qos.ch/logback-classic) ch.qos.logback:logback-classic:jar:1.2.10
+    License: Eclipse Public License - v 1.0  (http://www.eclipse.org/legal/epl-v10.html)    License: GNU Lesser General Public License  (http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html)
+  - Logback Core Module (http://logback.qos.ch/logback-core) ch.qos.logback:logback-core:jar:1.2.10
+    License: Eclipse Public License - v 1.0  (http://www.eclipse.org/legal/epl-v10.html)    License: GNU Lesser General Public License  (http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html)
+  - SLF4J API Module (http://www.slf4j.org) org.slf4j:slf4j-api:jar:1.7.32
+    License: MIT License  (http://www.opensource.org/licenses/mit-license.php)
+
+
+
+
