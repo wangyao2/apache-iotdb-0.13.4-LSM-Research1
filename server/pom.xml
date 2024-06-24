@@ -168,7 +168,7 @@
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
             <artifactId>jjwt-api</artifactId>
-            <version>0.10.7</version>
+            <version>0.10.8</version>
         </dependency>
         <!-- Impl -->
         <dependency>
