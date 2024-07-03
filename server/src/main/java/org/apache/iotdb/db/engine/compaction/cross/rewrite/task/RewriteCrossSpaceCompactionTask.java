@@ -171,7 +171,7 @@ public class RewriteCrossSpaceCompactionTask extends AbstractCrossSpaceCompactio
       // restart recovery
       compactionLogger.close();
 
-      CompactionUtils.compact(
+      CompactionUtils.compact( //交叉空间内的合并是通过工具类执行的
           selectedSeqTsFileResourceList, selectedUnSeqTsFileResourceList, targetTsfileResourceList);
 
       CompactionUtils.moveTargetFile(targetTsfileResourceList, false, fullStorageGroupName);

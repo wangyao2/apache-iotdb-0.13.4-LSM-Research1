@@ -88,7 +88,7 @@ public class SizeTieredCompactionSelector extends AbstractInnerSpaceCompactionSe
       int maxLevel = searchMaxFileLevel();
       for (int currentLevel = 0; currentLevel <= maxLevel; currentLevel++) {
         if (!selectLevelTask(currentLevel, taskPriorityQueue)) { //如果在一层中找到了一批可以合并的文件，那么就终止，不再判断其他层级了
-          break;
+          break; //这里面包含了核心的执行选择合并任务的逻辑
         }
       }
       while (taskPriorityQueue.size() > 0) {

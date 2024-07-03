@@ -118,10 +118,10 @@ public class SizeTieredCompactionTask extends AbstractInnerSpaceCompactionTask {
           "{} [Compaction] compaction with {}", fullStorageGroupName, selectedTsFileResourceList);
 
       // carry out the compaction
-      if (sequence) {
+      if (sequence) { //顺序空间内的合并执行
         InnerSpaceCompactionUtils.compact(targetTsFileResource, selectedTsFileResourceList);
       } else {
-        CompactionUtils.compact(
+        CompactionUtils.compact(//乱序空间内的合并执行
             Collections.emptyList(), selectedTsFileResourceList, targetTsFileList);
       }
 
