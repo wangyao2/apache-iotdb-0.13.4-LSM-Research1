@@ -387,7 +387,7 @@ public class IoTDBConfig {
    * SIZE_TIRED_COMPACTION:
    */
   private InnerCompactionStrategy innerCompactionStrategy =
-      InnerCompactionStrategy.SIZE_TIERED_COMPACTION;
+      InnerCompactionStrategy.Yaso_SIZE_TIERED_COMPACTION;
 
   /**
    * The strategy of cross space compaction task. There are just one cross space compaction strategy

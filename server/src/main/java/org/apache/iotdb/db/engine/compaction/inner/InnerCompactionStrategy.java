@@ -22,13 +22,16 @@ package org.apache.iotdb.db.engine.compaction.inner;
 import org.apache.iotdb.db.engine.compaction.CompactionTaskManager;
 import org.apache.iotdb.db.engine.compaction.inner.sizetiered.SizeTieredCompactionSelector;
 import org.apache.iotdb.db.engine.compaction.inner.sizetiered.SizeTieredCompactionTask;
+import org.apache.iotdb.db.engine.compaction.inner.sizetiered.YaosSizeCompactionSelector;
 import org.apache.iotdb.db.engine.storagegroup.TsFileManager;
 import org.apache.iotdb.db.engine.storagegroup.TsFileResource;
 
 import java.util.List;
 
 public enum InnerCompactionStrategy {
-  SIZE_TIERED_COMPACTION;
+  SIZE_TIERED_COMPACTION,
+  Yaso_SIZE_TIERED_COMPACTION;
+
 
   public static InnerCompactionStrategy getInnerCompactionStrategy(String name) {
     if ("SIZE_TIERED_COMPACTION".equalsIgnoreCase(name)) {
@@ -45,7 +48,7 @@ public enum InnerCompactionStrategy {
       List<TsFileResource> selectedTsFileResourceList,
       boolean sequence) {
     switch (this) {
-      case SIZE_TIERED_COMPACTION:
+      case SIZE_TIERED_COMPACTION://这个是生成任务，然后提交任务的，如果采用了Yaso_SIZE_TIERED_COMPACTION，那么也生成普通的任务模式
       default:
         return new SizeTieredCompactionTask(
             logicalStorageGroupName,
@@ -66,15 +69,24 @@ public enum InnerCompactionStrategy {
       boolean sequence,
       InnerSpaceCompactionTaskFactory taskFactory) {
     switch (this) {
+      case Yaso_SIZE_TIERED_COMPACTION:
+        return new YaosSizeCompactionSelector(
+                logicalStorageGroupName,
+                virtualStorageGroupName,
+                timePartition,
+                tsFileManager,
+                sequence,
+                taskFactory);
       case SIZE_TIERED_COMPACTION:
       default:
-        return new SizeTieredCompactionSelector(
-            logicalStorageGroupName,
-            virtualStorageGroupName,
-            timePartition,
-            tsFileManager,
-            sequence,
-            taskFactory);
+        return new SizeTieredCompactionSelector(//空间内部的合并策略，替换成自编方法
+                logicalStorageGroupName,
+                virtualStorageGroupName,
+                timePartition,
+                tsFileManager,
+                sequence,
+                taskFactory);
+
     }
   }
 }

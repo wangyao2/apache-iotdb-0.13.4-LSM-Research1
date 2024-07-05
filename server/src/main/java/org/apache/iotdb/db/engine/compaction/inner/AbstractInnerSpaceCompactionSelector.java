@@ -40,8 +40,8 @@ public abstract class AbstractInnerSpaceCompactionSelector extends AbstractCompa
       TsFileManager tsFileManager,
       boolean sequence,
       InnerSpaceCompactionTaskFactory taskFactory) {
-    this.logicalStorageGroupName = logicalStorageGroupName;
-    this.virtualStorageGroupName = virtualStorageGroupName;
+    this.logicalStorageGroupName = logicalStorageGroupName; //存储组名称，字符串
+    this.virtualStorageGroupName = virtualStorageGroupName;//虚拟存储组是数字编号
     this.timePartition = timePartition;
     this.tsFileManager = tsFileManager;
     this.sequence = sequence;

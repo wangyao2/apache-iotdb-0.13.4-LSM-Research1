@@ -83,7 +83,7 @@ public class CompactionScheduler {
 
     AbstractInnerSpaceCompactionSelector innerSpaceCompactionSelector =
         config
-            .getInnerCompactionStrategy()
+            .getInnerCompactionStrategy() //在这里去生成文件选择策略，已经在iotdbConfig类里设置成了
             .getCompactionSelector(
                 logicalStorageGroupName,
                 virtualStorageGroupName,

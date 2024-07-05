@@ -1093,4 +1093,8 @@ public class TsFileResource {
   public boolean isFileInList() {
     return prev != null || next != null;
   }
+
+  public ITimeIndex getTimeIndex(){
+    return timeIndex;//因为是内部持有的对象，需要一个方法返回，以便能够外部访问
+  }
 }
