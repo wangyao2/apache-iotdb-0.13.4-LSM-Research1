@@ -184,22 +184,21 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                 continue;
             }
             LOGGER.debug("Current File is {}, size is {}", currentFile, currentFile.getTsFileSize());
+
             ////==========核心逻辑的编码位置=================
             // 现在的文件添加和选择方法是按照顺序选择，我们在这个等号的范围内编写自己的文件选择策略
             double mergeSpeed = 1;//这两个写入 合并 速率参数，暂时还不能确定具体数据
             double writeSpeed = 0;//原版本里也没有这个参数
-
             List<long[]> candidateList = new ArrayList<>();//仅仅记录了下标和位置
             List<TsFileResource> overlappedList = calculateOverlappedList(tsFileResources);
             long offsetTime = 0;
             for (int i = 0; i < overlappedList.size(); i++) { //遍历每一个有交叉的文件
                 TsFileResource tsFileResource = overlappedList.get(i);
-                long mergedTimeInterval = tsFileResource.getEndTime("0") - tsFileResource.getStartTime("0");
+                long mergedTimeInterval = tsFileResource.getTimeIndex().getMaxEndTime() - tsFileResource.getTimeIndex().getMinStartTime();//这里原本是根据tsfileresource去计算起止时间
                 long mergeTimeCost = (long) (tsFileResource.getTsFileSize() / mergeSpeed * writeSpeed);
                 if (queryTimeInterval < (mergedTimeInterval + mergeTimeCost + offsetTime)) {
                     continue;
                 }
-
                 offsetTime += mergedTimeInterval;
                 for (int j = i + 1; j < overlappedList.size(); j++) { //似乎是遍历i后面的每一个文件
                     TsFileResource endTsFileResource = overlappedList.get(j);
@@ -212,13 +211,12 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                         // calculate not full reward time, from 1 to max_reward, which is active as long as the interval of every file
                         for (int k = 0; k < maxReward + 1; k++) {
                             TsFileResource currTsFileResource = overlappedList.get(k);
-                            allReward += currTsFileResource.getEndTime("0") - currTsFileResource.getStartTime("0");
+                            allReward += currTsFileResource.getTimeIndex().getMaxEndTime() - currTsFileResource.getTimeIndex().getMinStartTime();//这里原本是根据tsfileresource去计算起止时间
                         }
                     }
                     candidateList.add(new long[]{i, j, allReward}); //这里似乎是以下标的方式，记录两两文件的互相之间，reward
                 }
             }
-
             // get the tuple with max reward among candidate list
             long[] maxTuple = new long[]{0, 0, 0L};
             for (long[] tuple : candidateList) { //这里是分析，取出两两之间，ij可能是记录的范围，总之是对比哪一组收益更大
@@ -226,10 +224,9 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                     maxTuple = tuple;
                 }
             }
-
-            List<TsFileResource> result = new ArrayList<>();
+            List<TsFileResource> selectedFiles = new ArrayList<>();//根据合并受益，选择被合并的候选文件
             for (int i = (int) maxTuple[0]; i < maxTuple[1] + 1; i++) { //把前面收益最大的那一个，对应的ij下标内的文件选择出来
-                result.add(overlappedList.get(i));//这个或许就是最终选择出来的文件
+                selectedFiles.add(overlappedList.get(i));//这个或许就是最终选择出来的文件
             }
 
             // get the select result in order
@@ -278,20 +275,13 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
         for (int i = tsFileResources.size() - 1; i >= 0; i--) {//遍历每一个资源文件
             TsFileResource tsFileResource = tsFileResources.get(i);
             Set<String> devicesNameInOneTsfie = tsFileResource.getDevices();//获得所有的设备名
-            for (String onedevice : devicesNameInOneTsfie) { //我手动添加的，用来遍历文件内，一个设备的起始时间和结束时间感觉是要去找到这个文件的起始和结束时间
+            if (!devicesNameInOneTsfie.isEmpty()) {// 原方法tsFileResource.getDeviceToIndexMap().size() > 0
                 //寻找有重叠的文件
                 timeIndex = tsFileResource.getTimeIndex();
-                time += timeIndex.getMaxEndTime() - timeIndex.getMinStartTime();
-                if (time > queryTimeInterval) {//感觉这里应该是计算设备的时间跨度
-                    break;
+                if (true){//先判断文件是否和查询有交集再说
+                    overlappedList.add(tsFileResource);
                 }
-            }
-
-            if (!devicesNameInOneTsfie.isEmpty()) {// 原方法tsFileResource.getDeviceToIndexMap().size() > 0
-                //if条件里面原本是tsFileResource.getDeviceToIndexMap(),但是现在DeviceToIndexMap()存在于，TimeIndex里面
-                overlappedList.add(tsFileResource);
-                time += tsFileResource.getEndTime("0") - tsFileResource.getStartTime("0");
-                //这里面并不是设备的编号，而是设备的真名字，传入字符串。这里应该是计算每一个文件内，对应的设备
+                time += timeIndex.getMaxEndTime() - timeIndex.getMinStartTime();
                 if (time > queryTimeInterval) {//感觉这里应该是计算设备的时间跨度
                     break;
                 }

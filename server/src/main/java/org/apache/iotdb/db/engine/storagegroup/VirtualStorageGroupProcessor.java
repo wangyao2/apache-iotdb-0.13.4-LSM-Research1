@@ -29,6 +29,7 @@ import org.apache.iotdb.db.engine.StorageEngine;
 import org.apache.iotdb.db.engine.archiving.ArchivingTask;
 import org.apache.iotdb.db.engine.compaction.CompactionScheduler;
 import org.apache.iotdb.db.engine.compaction.CompactionTaskManager;
+import org.apache.iotdb.db.engine.compaction.QueryMonitorYaos;
 import org.apache.iotdb.db.engine.compaction.task.CompactionRecoverManager;
 import org.apache.iotdb.db.engine.fileSystem.SystemFileFactory;
 import org.apache.iotdb.db.engine.flush.CloseFileListener;
@@ -2221,6 +2222,9 @@ public class VirtualStorageGroupProcessor {
       List<Long> timePartitions = new ArrayList<>(tsFileManager.getTimePartitions()); //等会去查看一下合并任务执行之前的方法栈
       // sort the time partition from largest to smallest
       timePartitions.sort((o1, o2) -> (int) (o2 - o1));
+      //增加查询样式分析器，调用查询样式分析器的方法去分析查询的模式
+      QueryMonitorYaos monitorYaos = QueryMonitorYaos.getInstance();
+      monitorYaos.analyzeTheQueryPattern();
       for (long timePartition : timePartitions) {
         CompactionScheduler.scheduleCompaction(tsFileManager, timePartition); // 1、VSG负责合并的执行，在这里，由文件选择器 先去选择合并文件
       }

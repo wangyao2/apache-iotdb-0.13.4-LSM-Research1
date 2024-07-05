@@ -38,6 +38,7 @@ import org.apache.iotdb.db.engine.archiving.ArchivingTask;
 import org.apache.iotdb.db.engine.cache.BloomFilterCache;
 import org.apache.iotdb.db.engine.cache.ChunkCache;
 import org.apache.iotdb.db.engine.cache.TimeSeriesMetadataCache;
+import org.apache.iotdb.db.engine.compaction.QueryMonitorYaos;
 import org.apache.iotdb.db.engine.cq.ContinuousQueryService;
 import org.apache.iotdb.db.engine.flush.pool.FlushTaskPoolManager;
 import org.apache.iotdb.db.engine.storagegroup.TsFileResource;
@@ -752,6 +753,8 @@ public class PlanExecutor implements IPlanExecutor {
       throws StorageEngineException, QueryFilterOptimizationException, QueryProcessException,
           IOException, InterruptedException {
     QueryDataSet queryDataSet;
+    QueryMonitorYaos monitorYaos = QueryMonitorYaos.getInstance();//每一次执行查询的时候，都把
+    monitorYaos.addAquery(queryPlan,context);
     if (queryPlan instanceof AlignByDevicePlan) {
       queryDataSet = getAlignByDeviceDataSet((AlignByDevicePlan) queryPlan, context, queryRouter);
     } else {
