@@ -379,7 +379,7 @@ public class IoTDBConfig {
   /** Enable inner space copaction for unsequence files */
   private boolean enableUnseqSpaceCompaction = true;
 
-  /** Compact the unsequence files into the overlapped sequence files */
+  /** Compact the unsequence files into the overlapped sequence files 合并启动与否的参数控制位置*/
   private boolean enableCrossSpaceCompaction = true;
 
   /**

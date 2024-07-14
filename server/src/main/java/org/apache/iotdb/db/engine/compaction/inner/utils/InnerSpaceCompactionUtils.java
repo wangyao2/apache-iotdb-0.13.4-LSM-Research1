@@ -66,7 +66,7 @@ public class InnerSpaceCompactionUtils {
       throws IOException, MetadataException, InterruptedException {
 
     // size for file writer is 5% of per compaction task memory budget
-    long sizeForFileWriter =
+    long sizeForFileWriter = //原来这个是最大元数据的大小，从writer的入参推断出来
         (long)
             (((double) SystemInfo.getInstance().getMemorySizeForCompaction()
                     / (double)
@@ -105,7 +105,7 @@ public class InnerSpaceCompactionUtils {
     }
   }
 
-  private static void compactNotAlignedSeries( //2024年6月14日继续研究合并一个设备数据的流程和方法
+  private static void compactNotAlignedSeries( //2024年6月14日》7月13日又尝试继续继续研究合并一个设备数据的流程和方法
       String device, //待处理的当前设备，对应一个chunkgroup
       TsFileResource targetResource, //被写入的目标文件,也就是合并的结果文件
       TsFileIOWriter writer,//目标文件的writer 合并的结果文件对应的IOWriter
@@ -116,7 +116,7 @@ public class InnerSpaceCompactionUtils {
     while (seriesIterator.hasNextSeries()) { //遍历每一条传感器序列,针对一个具体的设备，再进一步找里面的序列和chunk元数据
       checkThreadInterrupted(targetResource);
       // TODO: we can provide a configuration item to enable concurrent between each series
-      PartialPath p = new PartialPath(device, seriesIterator.nextSeries());//把完整的root.cpt.g0.g0.s0切成一个一个的路径节点
+      PartialPath p = new PartialPath(device, seriesIterator.nextSeries());//把完整的root.cpt.g0.g0.s0切成一个一个的路径节点，同时在nextSeries方法内会替换到下一个序列s0
       IMeasurementSchema measurementSchema;
       // TODO: seriesIterator needs to be refactor.
       // This statement must be called before next hasNextSeries() called, or it may be trapped in a

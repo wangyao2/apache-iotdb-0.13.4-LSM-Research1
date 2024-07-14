@@ -124,7 +124,7 @@ public class RewriteCompactionFileSelector implements ICrossSpaceMergeFileSelect
           "Selecting merge candidates from {} seqFile, {} unseqFiles",
           resource.getSeqFiles().size(),
           resource.getUnseqFiles().size());
-      selectFiles(); //选择交叉文件的核心逻辑
+      selectFiles(); //选择交叉文件的核心逻辑，在一行函数里，负责填充变量selectedSeqFiles和selectedUnseqFiles
       resource.setSeqFiles(selectedSeqFiles);
       resource.setUnseqFiles(selectedUnseqFiles);
       resource.removeOutdatedSeqReaders();
@@ -187,7 +187,7 @@ public class RewriteCompactionFileSelector implements ICrossSpaceMergeFileSelect
       TsFileResource unseqFile = resource.getUnseqFiles().get(unseqIndex);
 
       if (seqSelectedNum != resource.getSeqFiles().size()) {
-        selectOverlappedSeqFiles(unseqFile); //为当前的乱序文件，选择有交叉空间的顺序文件
+        selectOverlappedSeqFiles(unseqFile); //为当前的乱序文件，选择有交叉空间的顺序文件，并且把选择的文件填充到tmpSelectedSeqFiles
       }
       boolean isSeqFilesValid = checkIsSeqFilesValid();
       if (!isSeqFilesValid) {
@@ -213,6 +213,77 @@ public class RewriteCompactionFileSelector implements ICrossSpaceMergeFileSelect
       tempMaxSeqFileCost = maxSeqFileCost;
       long newCost =
           compactionEstimator.estimateCrossCompactionMemory(tmpSelectedSeqFileResources, unseqFile);
+      if (!updateSelectedFiles(newCost, unseqFile)) {
+        // older unseq files must be merged before newer ones
+        break;
+      }
+
+      tmpSelectedSeqFiles.clear();
+      unseqIndex++; //索引加1，方便遍历下一个乱序文件
+      timeConsumption = System.currentTimeMillis() - startTime; //更新运行时间
+    }
+    for (int i = 0; i < seqSelected.length; i++) {
+      if (seqSelected[i]) {
+        selectedSeqFiles.add(resource.getSeqFiles().get(i));
+      }
+    }
+  }
+
+  /**
+   * 自行设计的交叉空间文件选择策略
+   *
+   * @throws IOException
+   */
+  void selectFilesByYaos() throws IOException {
+    tmpSelectedSeqFiles = new HashSet<>();
+    seqSelected = new boolean[resource.getSeqFiles().size()];
+    seqSelectedNum = 0;
+    selectedSeqFiles = new ArrayList<>();
+    selectedUnseqFiles = new ArrayList<>();
+    maxSeqFileCost = 0;
+    tempMaxSeqFileCost = 0;
+
+    totalCost = 0;
+
+    int unseqIndex = 0;
+    long startTime = System.currentTimeMillis();
+    long timeConsumption = 0;
+    long timeLimit = //在30秒的时间内去选择文件
+            IoTDBDescriptor.getInstance().getConfig().getCrossCompactionFileSelectionTimeBudget(); //获取文件选择的时间预算为30s，等会手动改成3000s
+    if (timeLimit < 0) {
+      timeLimit = Long.MAX_VALUE;
+    }
+    while (unseqIndex < resource.getUnseqFiles().size() && timeConsumption < timeLimit) {
+      // select next unseq files
+      TsFileResource unseqFile = resource.getUnseqFiles().get(unseqIndex);
+
+      if (seqSelectedNum != resource.getSeqFiles().size()) {
+        selectOverlappedSeqFiles(unseqFile); //为当前的乱序文件，选择有交叉空间的顺序文件
+      }
+      boolean isSeqFilesValid = checkIsSeqFilesValid();
+      if (!isSeqFilesValid) {
+        tmpSelectedSeqFiles.clear();
+        break;
+      }
+
+      // Filter out the selected seq files
+      for (int i = 0; i < seqSelected.length; i++) {
+        if (seqSelected[i]) {
+          tmpSelectedSeqFiles.remove(i);
+        }
+      }
+
+      List<TsFileResource> tmpSelectedSeqFileResources = new ArrayList<>();
+      for (int seqIndex : tmpSelectedSeqFiles) {
+        TsFileResource tsFileResource = resource.getSeqFiles().get(seqIndex);
+        tmpSelectedSeqFileResources.add(tsFileResource);
+        totalSize += resource.getSeqFiles().get(seqIndex).getTsFileSize();
+      }
+      totalSize += unseqFile.getTsFileSize();
+
+      tempMaxSeqFileCost = maxSeqFileCost;
+      long newCost =
+              compactionEstimator.estimateCrossCompactionMemory(tmpSelectedSeqFileResources, unseqFile);
       if (!updateSelectedFiles(newCost, unseqFile)) {
         // older unseq files must be merged before newer ones
         break;

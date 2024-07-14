@@ -73,19 +73,25 @@ public class SessionExample {
     // set session fetchSize
     session.setFetchSize(10000);
 
-    try {
-      session.setStorageGroup("root.sg1");
-    } catch (StatementExecutionException e) {
-      if (e.getStatusCode() != TSStatusCode.PATH_ALREADY_EXIST_ERROR.getStatusCode()) {
-        throw e;
-      }
-    }
+    SessionDataSet dataSet = session.executeQueryStatement("select s3,s4 from root.CPT1.g0.d2 where time > 2024-03-05T01:01:04 and time < 2024-03-05T01:03:57");
 
-    // createTemplate();
-    createTimeseries();
-    createMultiTimeseries();
-    insertRecord();
-    insertTablet();
+    SessionDataSet dataSet2 = session.executeQueryStatement(
+            "select count(s1),avg(*) from root.CPT1.g0.d0 group by ([2024-01-29T00:00:00, 2024-06-01T00:00:00), 2d)");
+
+//
+//    try {
+//      session.setStorageGroup("root.sg1");
+//    } catch (StatementExecutionException e) {
+//      if (e.getStatusCode() != TSStatusCode.PATH_ALREADY_EXIST_ERROR.getStatusCode()) {
+//        throw e;
+//      }
+//    }
+//
+//    // createTemplate();
+//    createTimeseries();
+//    createMultiTimeseries();
+//    insertRecord();
+//    insertTablet();
     //    insertTabletWithNullValues();
     //    insertTablets();
     //    insertRecords();
@@ -102,16 +108,16 @@ public class SessionExample {
     //    deleteTimeseries();
     //    setTimeout();
 
-    sessionEnableRedirect = new Session(LOCAL_HOST, 6667, "root", "root");
-    sessionEnableRedirect.setEnableQueryRedirection(true);
-    sessionEnableRedirect.open(false);
-
-    // set session fetchSize
-    sessionEnableRedirect.setFetchSize(10000);
-
-    insertRecord4Redirect();
-    query4Redirect();
-    sessionEnableRedirect.close();
+//    sessionEnableRedirect = new Session(LOCAL_HOST, 6667, "root", "root");
+//    sessionEnableRedirect.setEnableQueryRedirection(true);
+//    sessionEnableRedirect.open(false);
+//
+//    // set session fetchSize
+//    sessionEnableRedirect.setFetchSize(10000);
+//
+//    insertRecord4Redirect();
+//    query4Redirect();
+//    sessionEnableRedirect.close();
     session.close();
   }
 

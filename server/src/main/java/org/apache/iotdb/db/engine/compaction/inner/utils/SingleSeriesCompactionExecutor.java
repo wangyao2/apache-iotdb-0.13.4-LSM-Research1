@@ -115,10 +115,10 @@ public class SingleSeriesCompactionExecutor {
           continue;
         }
 
-        long chunkSize = getChunkSize(currentChunk);
+        long chunkSize = getChunkSize(currentChunk);//块的大小，还有块的头部都包含进来
         long chunkPointNum = currentChunk.getChunkStatistic().getCount();
         // we process this chunk in three different way according to the size of it
-        if (chunkSize >= targetChunkSize || chunkPointNum >= targetChunkPointNum) {
+        if (chunkSize >= targetChunkSize || chunkPointNum >= targetChunkPointNum) {//targetChunkSize是1048576B，对应1MB字节，不确定是否为字节单位衡量
           processLargeChunk(currentChunk, chunkMetadata);
         } else if (chunkSize < chunkSizeLowerBound && chunkPointNum < chunkPointNumLowerBound) {
           processSmallChunk(currentChunk);

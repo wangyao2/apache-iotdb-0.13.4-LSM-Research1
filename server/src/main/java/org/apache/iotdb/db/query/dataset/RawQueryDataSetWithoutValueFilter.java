@@ -251,7 +251,7 @@ public class RawQueryDataSetWithoutValueFilter extends QueryDataSet
 
   private void init() throws IOException, InterruptedException {
     timeHeap = new TimeSelector(seriesReaderList.size() << 1, ascending);
-    for (int i = 0; i < seriesReaderList.size(); i++) {
+    for (int i = 0; i < seriesReaderList.size(); i++) {//遍历每一个传感器阅读器，针对每一条时间序列，都创建一个查询任务
       ManagedSeriesReader reader = seriesReaderList.get(i);
       reader.setHasRemaining(true);
       reader.setManagedByQueryManager(true);

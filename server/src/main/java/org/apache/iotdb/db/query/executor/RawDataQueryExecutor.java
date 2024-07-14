@@ -71,7 +71,7 @@ public class RawDataQueryExecutor {
     if (dataSet != null) {
       return dataSet;
     }
-    List<ManagedSeriesReader> readersOfSelectedSeries = initManagedSeriesReader(context); //根据查询上下文创建IBatchReader ManagedSeriesReader
+    List<ManagedSeriesReader> readersOfSelectedSeries = initManagedSeriesReader(context); //根据查询上下文创建IBatchReader的实现类ManagedSeriesReader的实现类，可能是seriesRawDataBatchReader
     //再创建的过程中，还涉及到VSG去加载文件资源，以及QueryResourceManager查询资源管理器去负责加载资源进来
     try {
       return new RawQueryDataSetWithoutValueFilter(
@@ -115,7 +115,7 @@ public class RawDataQueryExecutor {
 
     try {
       // init QueryDataSource cache
-      QueryResourceManager.getInstance()
+      QueryResourceManager.getInstance() //1寻找查询资源，存储在单例的QueryResourceManager的cachedQueryDataSourcesMap结构里面
           .initQueryDataSourceCache(processorToSeriesMap, context, timeFilter);
     } catch (Exception e) {
       logger.error("Meet error when init QueryDataSource ", e);
@@ -130,7 +130,7 @@ public class RawDataQueryExecutor {
         TSDataType dataType = path.getSeriesType();
 
         QueryDataSource queryDataSource =
-            QueryResourceManager.getInstance()
+            QueryResourceManager.getInstance()//2 根据寻找的查询资源，获取对应资源
                 .getQueryDataSource(path, context, timeFilter, queryPlan.isAscending());
         timeFilter = queryDataSource.updateFilterUsingTTL(timeFilter);
 
