@@ -29,6 +29,9 @@ public class CalculateTime_Utils {
 //        parseAndGetTimeRange_Q3("(value > -5.0 && (time >= 1707321900000 && time <= 1707322150000))");
 //        parseAndGetTimeRange_Q3("(time >= 111 && time <= 2222))");
 //        parseAndGetTimeRange_Q3("[(time > 1722010210 && time < 1220572242 && 2313131)]");
+
+        Pair<String, String> stringStringPair3 = parseAndGetTimeRange_Q2("[time >= 1707321900000]");
+        System.out.println(stringStringPair3);
         String input = "(value > sdb -5.0 gh, &&kj  (time >= 1707321900000 && time < 1707322150000))";
         Pair<String, String> stringStringPair1 = parseAndGetTimeRange_Q3(input);
         System.out.println(stringStringPair1);
@@ -61,17 +64,21 @@ public class CalculateTime_Utils {
     }
 
     private static Pair<String, String> parseAndGetTimeRange_Q2(String sinput) {
-        Pattern pattern = Pattern.compile("\\d+");
+        // 正则表达式匹配时间范围
+        Pattern pattern = Pattern.compile("\\d+");//匹配字符串里面所有的整数，正好可以与Q2形式匹配
         try {
             Matcher matcher = pattern.matcher(sinput);
             List<String> numbers = new ArrayList<>();
             while (matcher.find()) {
                 numbers.add(matcher.group());
             }
-            return new Pair<String, String>(numbers.get(0), numbers.get(1));
-        } catch (Exception e) {
-            System.out.println("解析Q2时发生异常，请查看！");
-            return new Pair<String, String>("0", "0");
+            if (numbers.size() == 1){
+                return new Pair<String,String>(numbers.get(0),null);
+            }
+            return new Pair<String,String>(numbers.get(0),numbers.get(1));
+        }catch (Exception e){
+            System.out.println("解析Q2过滤字符串时发生异常，请查看！");
+            return new Pair<String,String>("0","0");
         }
     }
 
@@ -95,6 +102,38 @@ public class CalculateTime_Utils {
         }catch (Exception e){
             System.out.println("解析Q3过滤字符串时发生异常，请查看！");
             return new Pair<String,String>("0","0");
+        }
+    }
+    public static void extractTimeValues(String input) {
+        // 正则表达式匹配 "time" 后跟任意比较符号和数字
+        String regex = "time\\s+([<>!=]=?)\\s+(\\d+)";
+        // 注意：这个正则表达式会匹配每个单独的时间比较，如果需要匹配成对的时间（如 >= 和 <=），则需要更复杂的逻辑
+
+        // 如果你需要匹配成对的（比如同时匹配 >= 和 <=），你可能需要使用多次匹配并检查上下文
+        // 但为了简化，这里我们只匹配单个时间比较
+
+        Pattern pattern = Pattern.compile(regex);
+        Matcher matcher = pattern.matcher(input);
+
+        List<Long> timeValues = new ArrayList<>();
+
+        while (matcher.find()) {
+            // 提取数字并转换为Long类型
+            Long timeValue = Long.parseLong(matcher.group(2));
+            timeValues.add(timeValue);
+
+            // 如果需要，也可以打印出比较符号和时间值
+            System.out.println("Found: " + matcher.group(1) + " " + timeValue);
+        }
+
+        // 打印所有找到的时间值
+        if (!timeValues.isEmpty()) {
+            System.out.println("Extracted time values:");
+            for (Long value : timeValues) {
+                System.out.println(value);
+            }
+        } else {
+            System.out.println("No matching time values found.");
         }
     }
 }
