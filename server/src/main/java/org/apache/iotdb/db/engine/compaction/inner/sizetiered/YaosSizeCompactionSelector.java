@@ -179,7 +179,6 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
             int level, PriorityQueue<Pair<List<TsFileResource>, Long>> taskPriorityQueue) //文件选择里面的level仅仅是用来筛选本层的文件
             throws IOException {
         boolean shouldContinueToSearch = true;
-        List<TsFileResource> selectedFileList = new ArrayList<>();
         long selectedFileSize = 0L;
         long targetCompactionFileSize = config.getTargetCompactionFileSize(); // 1GB的字节
 
@@ -189,12 +188,12 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
         double writeSpeed = 1;//原版本里也没有这个参数
         List<long[]> candidateList = new ArrayList<>();//仅仅记录了下标和位置
         List<TsFileResource> overlappedList = calculateOverlappedList(tsFileResources, level);
-        long offsetTime = 0;
+        long offsetTime = 0;//overlappedList里面的文件是按照时间先后，新的文件在list的前面 下标号小
         for (int i = 0; i < overlappedList.size(); i++) { //遍历每一个有交叉的文件，在张lz的算法中，只有一个for循环，没有外层的循环，已经改成对应的单个for循环了
             TsFileResource tsFileResource = overlappedList.get(i);
             long mergedTimeInterval = tsFileResource.getTimeIndex().getMaxEndTime() - tsFileResource.getTimeIndex().getMinStartTime();
             //获取当前文件的时间跨度
-            //这里原本是根据tsfileresource去计算起止时间
+            //这里原本是根据tsfileresource去计算起止时间,tsFileResource的文件大小是long类型的字节，mergeSpeed是MB，默认是16MB每秒
             long mergeTimeCost = (long) (tsFileResource.getTsFileSize() / mergeSpeed * writeSpeed);//我预计这里应该是用毫秒数，合并耗时，文件大小除以100，注意一下文件大小的单位，long类型，应该是字节数
             if (queryTimeInterval < (mergedTimeInterval + mergeTimeCost + offsetTime)) {//判断文件的跨度还没有超过查询的特征间隔
                 continue;
@@ -225,41 +224,28 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                 maxTuple = tuple;
             }
         }
+        TsFileResource currentFile;
         List<TsFileResource> YaosselectedFiles = new ArrayList<>();//根据合并受益，选择被合并的候选文件
-        for (int i = (int) maxTuple[0]; i <= maxTuple[1]; i++) { //把前面收益最大的那一个，对应的ij下标内的文件选择出来
-            YaosselectedFiles.add(overlappedList.get(i));//这个或许就是最终选择出来的文件
-        }
-        //todo 后面再跟内容的话，就是检测被选中的文件，是否可以参与到合并中，进行选择文件数量的检查或者是文件大小检查
-        //==========核心逻辑的编码位置=================
-        //YaosselectedFiles里面就封装了按照范围查询选择合并的那些文件，
-        //下面内容是旧的文件选择逻辑，先保存在这里，方便后续进行合并
-        for (TsFileResource currentFile : tsFileResources) { //获取顺序空间内的所有文件，或者乱序空间内的所有文件其一
-            TsFileNameGenerator.TsFileName currentName = //把文件名进行解析成时间戳-版本-合并次数-跨空间次数的格式，判断是否处于当前层级
-                    TsFileNameGenerator.getTsFileName(currentFile.getTsFile().getName());
-            if (currentName.getInnerCompactionCnt() != level //如果遍历的时候，跟当前处理的层级不一致，那么就跳过这个文件
-                    || currentFile.getStatus() != TsFileResourceStatus.CLOSED) { //或者文件不是关闭状态，就跳过
-                selectedFileList.clear();
-                selectedFileSize = 0L;
-                continue;
+        if (!overlappedList.isEmpty()){//如果有文件才执行，以免系统一直报索引溢出的错误
+            for (int i = (int) maxTuple[0]; i <= maxTuple[1]; i++) { //把前面收益最大的那一个，对应的ij下标范围内的文件选择出来
+                currentFile = overlappedList.get(i);
+                YaosselectedFiles.add(overlappedList.get(i));//这个或许就是最终选择出来的文件
+                LOGGER.debug("Current File is {}, size is {}", currentFile, currentFile.getTsFileSize());
+                selectedFileSize += currentFile.getTsFileSize();
+                LOGGER.debug(
+                        "Add tsfile {}, current select file num is {}, size is {}",
+                        currentFile,
+                        YaosselectedFiles.size(),
+                        selectedFileSize);
             }
-            LOGGER.debug("Current File is {}, size is {}", currentFile, currentFile.getTsFileSize());
-            // get the select result in order
-            selectedFileList.add(currentFile); //把当前层级的文件持续的添加到临时队列selectedFileList当中，只要没满足142行的条件，就一直添加新的进来
-            selectedFileSize += currentFile.getTsFileSize();
-            LOGGER.debug(
-                    "Add tsfile {}, current select file num is {}, size is {}",
-                    currentFile,
-                    selectedFileList.size(),
-                    selectedFileSize);
-            // if the file size or file num reach threshold，判断临时队列的数量或者存储空间的大小
-            if (selectedFileSize >= targetCompactionFileSize
-                    || selectedFileList.size() >= config.getMaxInnerCompactionCandidateFileNum()) {//合并时候候选文件的数量如果为3，那么就合并，原本是30个合并
+            if (selectedFileSize >= targetCompactionFileSize //注意在选择完文件之后，需要合并的文件数最少得是3
+                    || YaosselectedFiles.size() >= config.getMaxInnerCompactionCandidateFileNum()) {//合并时候候选文件的数量如果为3，那么就合并，原本是30个合并
                 // submit the task
-                if (selectedFileList.size() > 1) {//满足刷写条件之后，就封装这一批文件到任务队列中
-                    taskPriorityQueue.add(new Pair<>(new ArrayList<>(selectedFileList), selectedFileSize));
+                if (YaosselectedFiles.size() > 1) {//满足刷写条件之后，就封装这一批文件到任务队列中
+                    taskPriorityQueue.add(new Pair<>(new ArrayList<>(YaosselectedFiles), selectedFileSize));
                 }
-                selectedFileList = new ArrayList<>();//然后清空临时队列，继续检测当前层级的其他文件是否仍然满足条件，直到遍历完所有的文件一遍
-                selectedFileSize = 0L;
+                //selectedFileSize = 0L;//目前算法每次调用时，只封装生成一个合并任务，原本的是在一层中搜索多次，一次搜索封装多个任务
+                //因为，只搜索一次，
                 shouldContinueToSearch = false;
             }
         }
