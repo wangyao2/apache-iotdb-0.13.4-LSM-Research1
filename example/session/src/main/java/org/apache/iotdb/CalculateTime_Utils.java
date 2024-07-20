@@ -20,7 +20,9 @@ import java.util.regex.Pattern;
 public class CalculateTime_Utils {
 
     public static void main(String[] args) throws ParseException {
-        System.out.println(LongToData(1707667500000L, false));
+        System.out.println(LongToData(1707321993000L, false));
+        System.out.println(LongToData(1707322243000L, false));
+        System.out.println("=======");
         System.out.println(DateToLongTimestamp("2024-02-01 00:00:05"));
         System.out.println(DateToLongTimestamp("2024-02-01 00:00:05.123"));
         Pair<String, String> stringStringPair = parseAndGetTimeRange_Q2("[(time > 1722010210 && time < 1220572242 && 2313131)]");
