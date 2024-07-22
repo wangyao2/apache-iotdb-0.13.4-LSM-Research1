@@ -12,7 +12,9 @@ import org.apache.iotdb.tsfile.utils.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Random;
 import java.util.regex.Matcher;
@@ -28,6 +30,7 @@ import java.util.regex.Pattern;
  */
 public class QueryMonitorYaos {
 
+    SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");;
     private static final QueryMonitorYaos INSTANCE = new QueryMonitorYaos();
     private static final Logger LOGGER =
             LoggerFactory.getLogger(IoTDBConstant.COMPACTION_LOGGER_NAME);
@@ -38,7 +41,7 @@ public class QueryMonitorYaos {
     private static long EndTimeFeatueOfABatchQuerys = 0;
 
     private static ArrayList<FeatureofOneQuery> QueryFeaturesList = new ArrayList<>();//记录每一个范围查询的查询间隔
-    private static ArrayList<FeatureofOneQuery> QueryFeaturesGloablList = new ArrayList<>();//记录每一个范围查询的查询间隔
+    private static ArrayList<FeatureofOneQuery> QueryFeaturesGloablList = new ArrayList<>();//记录一批查询结果的几个
 
     //private static ArrayList<Long> QueryInterval = new ArrayList<>();//记录每一个范围查询的查询间隔
     //private static ArrayList<Long> QueryStartTime = new ArrayList<>();//记录每一个范围查询的查询开始时间
@@ -55,7 +58,7 @@ public class QueryMonitorYaos {
         //每次执行查询时，都把查询涉及到的设备和时间范围捕获过来，拿到
         LOGGER.debug("接收到查询请求！ - {}", queryPlan);
         QueryQRList.add(queryPlan);
-        ContextCTList.add(context);
+        //ContextCTList.add(context);//暂时使用不到
 //        analyzeTheQueryFeature();//暂时先放在这里，后面要移动到合并查询之前，进行查询样式的分析
 //        analyzeTheGolableFeatures();
     }
@@ -135,6 +138,7 @@ public class QueryMonitorYaos {
         }
         analyzeTheGolableFeatures_UsingMeanShift();//使用方法分析，收集负载的特征，把负载解析成几个类型的特征，存储到QueryFeaturesGloablList内
         QueryFeaturesList.clear();//分析完一批之后，就清空里面的内容
+        QueryQRList.clear();
         if (!QueryFeaturesGloablList.isEmpty()){
             System.out.println(QueryFeaturesGloablList.get(0));
         }
@@ -170,9 +174,9 @@ public class QueryMonitorYaos {
      */
     private void analyzeTheGolableFeatures_UsingMeanShift() {
         double bandWith = 500000.0;
-        FeatureofOneQuery ARandomQuery = getRandomElement(QueryFeaturesList);
+        FeatureofOneQuery ARandomQuery = getRandomElement(QueryFeaturesList);//在这里进行空值的判断分析
         if (ARandomQuery != null){//如果不是空的，才进行分析
-            FeatureofOneQuery OneGloableFeature = meanShift(ARandomQuery, QueryFeaturesList, bandWith);
+            FeatureofOneQuery OneGloableFeature = meanShift_moveToCentor(ARandomQuery, QueryFeaturesList, bandWith);
             QueryFeaturesGloablList.add(OneGloableFeature);
         }
     }
@@ -180,7 +184,7 @@ public class QueryMonitorYaos {
     /**
      * 使用meanShift相关的算法，传入一个随机点point，以这个点出发，寻找一个聚类中心
      */
-    private FeatureofOneQuery meanShift(FeatureofOneQuery point, List<FeatureofOneQuery> points, double bandwidth) {
+    private FeatureofOneQuery meanShift_moveToCentor(FeatureofOneQuery point, List<FeatureofOneQuery> points, double bandwidth) {
         FeatureofOneQuery oldLastPoint = new FeatureofOneQuery(point.getStartTime(), point.getInterval(),point.getEndTime());
         boolean convergence;
         do {
@@ -335,19 +339,14 @@ public class QueryMonitorYaos {
         }
     }
 
-    public void getAnalyzedStartTime() {
+    public ArrayList<FeatureofOneQuery> getAnalyzedFeatruedList() {
         System.out.println("返回访问统计时间...");
-
+        return QueryFeaturesGloablList;
     }
 
-    public void getAnalyzedInterval() {
-        System.out.println("返回访问统计时间...");
-
-    }
-
-
-    private class QueryPatternEstimatorYaos {
-
+    public void clearFeatures() {
+        QueryFeaturesList.clear();
+        QueryFeaturesGloablList.clear();
     }
 
     /**
@@ -361,10 +360,15 @@ public class QueryMonitorYaos {
         int randomIndex = random.nextInt(list.size()); // 生成一个随机索引
         return list.get(randomIndex); // 返回列表中随机索引处的元素
     }
+
+    private class QueryPatternEstimatorYaos {
+
+    }
+
     /**
      * 用来记录每一条查询的特征，如果涉及到更多特征的话，那么再考虑追加其他特征
      */
-    class FeatureofOneQuery {
+    public class FeatureofOneQuery {
         private long startTime = 0;
         private long interval = 0;
         private long endTime = 0;
@@ -375,13 +379,14 @@ public class QueryMonitorYaos {
             this.endTime = endTime;
         }
 
-
         @Override
         public String toString() {
-            return "The Feature of the Query is {" +
-                    "startTime=" + startTime +
-                    ", Interval=" + interval +
-                    ", endTime=" + endTime +
+            String formatstartTime = dateFormat.format(new Date(startTime));
+            String formatendTime = dateFormat.format(new Date(endTime));
+            return "{" +
+                    "startTime=" + formatstartTime +
+                    ", Interval=" + interval/1000 +
+                    "s, endTime=" + formatendTime +
                     '}';
         }
 
@@ -410,8 +415,10 @@ public class QueryMonitorYaos {
         }
 
         public double distanceTo(FeatureofOneQuery other) {
-            return Math.sqrt(Math.pow(this.startTime - other.startTime, 2) + Math.pow(this.interval - other.interval, 2) + + Math.pow(this.endTime - other.endTime, 2));
-
+            double sqrt = Math.sqrt(Math.pow(this.startTime - other.startTime, 2)//这里返回的是小数，如果两个范围是1707321993000L - 0的平方，返回结果越2.4*10^24，double类型也能存住
+                    + Math.pow(this.interval - other.interval, 2)
+                    + Math.pow(this.endTime - other.endTime, 2));
+            return sqrt;
         }
     }
 }

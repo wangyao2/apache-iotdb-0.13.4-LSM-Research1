@@ -20,10 +20,18 @@ import java.util.regex.Pattern;
 public class CalculateTime_Utils {
 
     public static void main(String[] args) throws ParseException {
-        System.out.println(LongToData(1707321993000L, false));
-        System.out.println(LongToData(1707322243000L, false));
+        System.out.println(LongToData(1706718720000L, false));
+        System.out.println(LongToData(1707208320000L, false));
+        System.out.println(Math.pow(1707322260000L - 0L, 2));
+        System.out.println(Math.pow(1707322260000L - 1707321900000L, 2));
+
+        double sqrt = Math.sqrt(Math.pow(1707322260000L - 1707321900000L, 2)
+                + Math.pow(10 - 8, 2)
+                + Math.pow(1707322260000L - 1707321900000L, 2));//这一组计算完结果大概是30w
+        System.out.println(sqrt);
+
         System.out.println("=======");
-        System.out.println(DateToLongTimestamp("2024-02-01 00:00:05"));
+        System.out.println("7天时间" + DateToLongTimestamp("1970-01-07 00:00:00"));
         System.out.println(DateToLongTimestamp("2024-02-01 00:00:05.123"));
         Pair<String, String> stringStringPair = parseAndGetTimeRange_Q2("[(time > 1722010210 && time < 1220572242 && 2313131)]");
         System.out.println(stringStringPair.toString());

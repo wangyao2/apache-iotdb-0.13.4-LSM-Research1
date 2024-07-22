@@ -60,8 +60,8 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
             LoggerFactory.getLogger(IoTDBConstant.COMPACTION_LOGGER_NAME);
     private static IoTDBConfig config = IoTDBDescriptor.getInstance().getConfig();
 
-    private final long queryTimeStart= 1706716805000L;//2024-02-01 00:00:05 的 long类型时间戳
-    private final long queryTimeInterval = 604800000L;//86400000 * 7 = 604800000
+    private long queryTimeStart= 1706716805000L;//2024-02-01 00:00:05 的 long类型时间戳
+    private long queryTimeInterval = 604800000L;//86400000 * 7 = 604800000
     //这个参数在zhanglingzhe的代码中单独作为一个静态参数，据说是根据python分析的结果反写回来的
 
     public YaosSizeCompactionSelector(
@@ -93,9 +93,15 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
         PriorityQueue<Pair<List<TsFileResource>, Long>> taskPriorityQueue = //被选中的文件都存在taskPriorityQueue队列里面了
                 new PriorityQueue<>(new SizeTieredCompactionTaskComparator());
         QueryMonitorYaos monitorYaos = QueryMonitorYaos.getInstance();
-        monitorYaos.getAnalyzedStartTime();//获得计算的访问负载特征，查询的起始时间
-        monitorYaos.getAnalyzedInterval();//获得计算的访问负载特征，查询的间隔
-
+        ArrayList<QueryMonitorYaos.FeatureofOneQuery> analyzedFeatruedList = monitorYaos.getAnalyzedFeatruedList();//获得计算的访问负载特征，查询的起始时间
+        if (analyzedFeatruedList.isEmpty()){//如果结果是空的，那就什么也不做
+            queryTimeStart = 1707322260000L;
+            queryTimeInterval = 250000;
+        }else {//如果有返回的统计结果
+            queryTimeStart = analyzedFeatruedList.get(0).getStartTime();//现阶段只分析获取的第一个元素
+            queryTimeInterval = analyzedFeatruedList.get(0).getInterval();
+        }
+        monitorYaos.clearFeatures();
         try {
             int maxLevel = searchMaxFileLevel();
             for (int currentLevel = 0; currentLevel <= maxLevel; currentLevel++) {
@@ -204,7 +210,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                 mergeTimeCost += endTsFileResource.getTsFileSize() / mergeSpeed * writeSpeed;
                 long allReward = 0L;
                 int maxReward = j - i; //这个应该是对应文件的数量,在两个文件i，j之间有多少个
-                long fullRewardTime = queryTimeInterval - offsetTime - mergedTimeInterval - mergeTimeCost;
+                long fullRewardTime = queryTimeInterval - offsetTime - mergedTimeInterval - mergeTimeCost;//可以理解成，有效时间间隔
                 allReward += maxReward * fullRewardTime;
                 if (allReward > 0) {
                     // calculate not full reward time, from 1 to max_reward, which is active as long as the interval of every file
