@@ -2224,7 +2224,7 @@ public class VirtualStorageGroupProcessor {
       timePartitions.sort((o1, o2) -> (int) (o2 - o1));
       //增加查询样式分析器，调用查询样式分析器的方法去分析查询的模式
       QueryMonitorYaos monitorYaos = QueryMonitorYaos.getInstance();
-       monitorYaos.analyzeTheQueryFeature();
+      monitorYaos.analyzeTheQueryFeature();
       for (long timePartition : timePartitions) {
         CompactionScheduler.scheduleCompaction(tsFileManager, timePartition); // 1、VSG负责合并的执行，在这里，由文件选择器 先去选择合并文件
       }

@@ -41,7 +41,7 @@ public class QueryMonitorYaos {
     private static long EndTimeFeatueOfABatchQuerys = 0;
 
     private static ArrayList<FeatureofOneQuery> QueryFeaturesList = new ArrayList<>();//记录每一个范围查询的查询间隔
-    private static ArrayList<FeatureofOneQuery> QueryFeaturesGloablList = new ArrayList<>();//记录一批查询结果的几个
+    private static ArrayList<FeatureofOneQuery> QueryFeaturesGloablList = new ArrayList<>();//记录一批查询结果的几个特征
 
     //private static ArrayList<Long> QueryInterval = new ArrayList<>();//记录每一个范围查询的查询间隔
     //private static ArrayList<Long> QueryStartTime = new ArrayList<>();//记录每一个范围查询的查询开始时间
@@ -136,6 +136,7 @@ public class QueryMonitorYaos {
                 LOGGER.debug("Current queryPlan is {} which is not matched", queryPlan);
             }
         }
+        analyzeTheQueryListToSegmentFeatures();//使用分析方法，把收到的查询负载解析成很多特征和标签样式
         analyzeTheGolableFeatures_UsingMeanShift();//使用方法分析，收集负载的特征，把负载解析成几个类型的特征，存储到QueryFeaturesGloablList内
         QueryFeaturesList.clear();//分析完一批之后，就清空里面的内容
         QueryQRList.clear();
@@ -143,6 +144,14 @@ public class QueryMonitorYaos {
             System.out.println(QueryFeaturesGloablList.get(0));
         }
         System.out.println("pasue to debug");
+    }
+
+    /**
+     * 用来汇总一段时间内的，并把结果封装到FeatureofOneQuery类里面返回
+     */
+    private void analyzeTheQueryListToSegmentFeatures() {
+
+
     }
 
     /**
