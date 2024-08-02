@@ -11,7 +11,8 @@ import org.apache.iotdb.tsfile.read.filter.operator.AndFilter;
 import org.apache.iotdb.tsfile.utils.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
+import java.io.FileWriter;
+import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -58,7 +59,7 @@ public class QueryMonitorYaos {
         //每次执行查询时，都把查询涉及到的设备和时间范围捕获过来，拿到
         LOGGER.debug("接收到查询请求！ - {}", queryPlan);
         QueryQRList.add(queryPlan);
-        //ContextCTList.add(context);//暂时使用不到
+        ContextCTList.add(context);//暂时使用不到；现在启用，用来收集查询的开始时间
 //        analyzeTheQueryFeature();//暂时先放在这里，后面要移动到合并查询之前，进行查询样式的分析
 //        analyzeTheGolableFeatures();
     }
@@ -73,6 +74,9 @@ public class QueryMonitorYaos {
             System.out.println("没有需要被分析的数据,或者搜集的查询数量过少！");
             return;
         }
+        QueryFeaturesList.clear();//分析完一批之后，就清空里面的内容
+        ContextCTList.clear();//分析完一批之后，就清空里面的内容
+
         for (QueryPlan queryPlan : QueryQRList) {//这个链表是按照查询负载的到达顺序存储的
             IExpression expression;//临时创建一个空对象指针，节省空间
             //todo 外区间范围查询暂未修复，预计不会使用
@@ -136,8 +140,12 @@ public class QueryMonitorYaos {
                 LOGGER.debug("Current queryPlan is {} which is not matched", queryPlan);
             }
         }
+        for (QueryContext context : ContextCTList) {
+
+        }
         analyzeTheQueryListToSegmentFeatures();//使用分析方法，把收到的查询负载解析成很多特征和标签样式
         analyzeTheGolableFeatures_UsingMeanShift();//使用方法分析，收集负载的特征，把负载解析成几个类型的特征，存储到QueryFeaturesGloablList内
+        outputTheQueryFeatureToCsv_asTranningSample();//把收集到的负载写入到csv文件里
         QueryFeaturesList.clear();//分析完一批之后，就清空里面的内容
         QueryQRList.clear();
         if (!QueryFeaturesGloablList.isEmpty()){
@@ -248,6 +256,7 @@ public class QueryMonitorYaos {
         double[] centroid = {startTimeSum / count, InetvalTimeSum / count, EndTimeSum / count};//计算质心，返回一个计算过的质心对象
         QueryFeaturesGloablList.add(new FeatureofOneQuery((long) centroid[0],(long) centroid[1],(long) centroid[2]));
     }
+
     private static Pair<String, String> parseAndGetTimeRange_Q2(String sinput) {
         // 正则表达式匹配时间范围 Q2和Q4都用这个解析
         Pattern pattern = Pattern.compile("\\d+");//匹配字符串里面所有的整数，正好可以与Q2形式匹配
@@ -368,6 +377,99 @@ public class QueryMonitorYaos {
         Random random = new Random();
         int randomIndex = random.nextInt(list.size()); // 生成一个随机索引
         return list.get(randomIndex); // 返回列表中随机索引处的元素
+    }
+
+    /**
+     * 预测算法前测试，把收集到的负载全都写入到CSV文件，或者生成为ML可训练的样本
+     */
+    public void outputTheQueryFeatureToCsv_asTranningSample() {
+        // 使用FileWriter写入文件
+        FeatureofOneQuery feature = null;
+        QueryContext context = null;
+        try (FileWriter writer = new FileWriter("F:\\Workspcae\\IdeaWorkSpace\\IotDBMaster2\\apache-iotdb-0.13.4-LSM-Research1\\outputCsv\\a.csv")) {
+            writer.write("start,interval,endtime,startQuery" + System.lineSeparator());
+            for (int i = 0; i < QueryFeaturesList.size(); i++) {
+                feature = QueryFeaturesList.get(i);
+                context = ContextCTList.get(i);
+                // 写入每个元素的toString()返回值，并在末尾添加换行符
+                String oneLine = feature.startTime + "," + feature.interval + "," + feature.endTime + "," +context.getStartTime();
+                writer.write(oneLine + System.lineSeparator());
+            }
+            System.out.println("刷写到CSV A 已完成！");
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+
+        try (FileWriter writer = new FileWriter("F:\\Workspcae\\IdeaWorkSpace\\IotDBMaster2\\apache-iotdb-0.13.4-LSM-Research1\\outputCsv\\b.csv")) {
+            writer.write("groupNum,startTime_mean,startTime_Vari,endtime_mean,endtime_Vari,startQuery_mean,startQuery_vari" + System.lineSeparator());
+            final int groupSize = 10;
+            int count = 1;
+            for (int i = 0; i < QueryFeaturesList.size(); i += groupSize) {
+                // 获取当前组的子列表
+                ArrayList<FeatureofOneQuery> group = new ArrayList<>(QueryFeaturesList.subList(i, Math.min(i + groupSize, QueryFeaturesList.size())));
+                // 计算每一个小分组内的平均值和方差
+                double[] stats_Startime = calculateGroupStatistics_StartTime(group);
+                double startime_mean = stats_Startime[0];
+                double startime_variance = stats_Startime[1];
+
+                double[] stats_endtime = calculateGroupStatistics_endtime(group);
+                double endtime_mean = stats_endtime[0];
+                double endtime_variance = stats_endtime[1];
+
+                ArrayList<QueryContext> groupCX = new ArrayList<>(ContextCTList.subList(i, Math.min(i + groupSize, ContextCTList.size())));
+                double[] stats_QueryStartime = calculateGroupStatistics_StartTime_ofQuery(groupCX);
+                double Qstartime_mean = stats_QueryStartime[0];
+                double Qstarttime_variance = stats_QueryStartime[1];
+                // 写入CSV文件
+                writer.write(count++ +
+                        ","+ startime_mean + "," + startime_variance +
+                        "," + endtime_mean +"," +endtime_variance +
+                        "," + Qstartime_mean+ "," + Qstarttime_variance
+                        + System.lineSeparator());
+            }
+            System.out.println("刷写到CSV B 已完成！");
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static double[] calculateGroupStatistics_StartTime(ArrayList<FeatureofOneQuery> group) {
+        double sum = 0.0;
+        double squareSum = 0.0;
+        for (FeatureofOneQuery feature : group) {
+            double value = feature.getStartTime();
+            sum += value;
+            squareSum += value * value;
+        }
+        double mean = sum / group.size();
+        double variance = (squareSum / group.size()) - (mean * mean);
+        return new double[]{mean, variance};
+    }
+
+    private static double[] calculateGroupStatistics_endtime(ArrayList<FeatureofOneQuery> group) {
+        double sum = 0.0;
+        double squareSum = 0.0;
+        for (FeatureofOneQuery feature : group) {
+            double value = feature.getEndTime();
+            sum += value;
+            squareSum += value * value;
+        }
+        double mean = sum / group.size();
+        double variance = (squareSum / group.size()) - (mean * mean);
+        return new double[]{mean, variance};
+    }
+
+    private static double[] calculateGroupStatistics_StartTime_ofQuery(ArrayList<QueryContext> group) {
+        double sum = 0.0;
+        double squareSum = 0.0;
+        for (QueryContext feature : group) {
+            double value = feature.getStartTime();
+            sum += value;
+            squareSum += value * value;
+        }
+        double mean = sum / group.size();
+        double variance = (squareSum / group.size()) - (mean * mean);
+        return new double[]{mean, variance};
     }
 
     private class QueryPatternEstimatorYaos {
