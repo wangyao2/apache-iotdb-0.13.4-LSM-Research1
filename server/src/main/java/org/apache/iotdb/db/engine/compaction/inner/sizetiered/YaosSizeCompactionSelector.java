@@ -22,6 +22,7 @@ import org.apache.iotdb.db.conf.IoTDBConfig;
 import org.apache.iotdb.db.conf.IoTDBConstant;
 import org.apache.iotdb.db.conf.IoTDBDescriptor;
 import org.apache.iotdb.db.engine.compaction.CompactionTaskManager;
+import org.apache.iotdb.db.engine.compaction.MLQueryAnalyzerYaos;
 import org.apache.iotdb.db.engine.compaction.QueryMonitorYaos;
 import org.apache.iotdb.db.engine.compaction.inner.AbstractInnerSpaceCompactionSelector;
 import org.apache.iotdb.db.engine.compaction.inner.InnerSpaceCompactionTaskFactory;
@@ -32,7 +33,7 @@ import org.apache.iotdb.db.engine.storagegroup.TsFileResource;
 import org.apache.iotdb.db.engine.storagegroup.TsFileResourceStatus;
 import org.apache.iotdb.db.engine.storagegroup.timeindex.ITimeIndex;
 import org.apache.iotdb.tsfile.utils.Pair;
-
+import org.apache.iotdb.db.engine.compaction.MLQueryAnalyzerYaos;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -92,8 +93,24 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
     public void selectAndSubmit() {
         PriorityQueue<Pair<List<TsFileResource>, Long>> taskPriorityQueue = //被选中的文件都存在taskPriorityQueue队列里面了
                 new PriorityQueue<>(new SizeTieredCompactionTaskComparator());
+
+        MLQueryAnalyzerYaos MLAnalyzer = MLQueryAnalyzerYaos.getInstance();
         QueryMonitorYaos monitorYaos = QueryMonitorYaos.getInstance();
-        ArrayList<QueryMonitorYaos.FeatureofOneQuery> analyzedFeatruedList = monitorYaos.getAnalyzedFeatruedList();//获得计算的访问负载特征，查询的起始时间
+
+        ArrayList<QueryMonitorYaos.FeatureofGroupQuery> analyzedFeatruedList = monitorYaos.getAnalyzedFeatruedList();//获得计算的访问负载特征，查询的起始时间
+        MLAnalyzer.setQuery(QueryMonitorYaos.getQueryFeaturesGloablList());//把 负载收集器 收集到的结果 发送给 机器学习预测器
+        long[] predictedStartimeAndEndTime = null;//调用模型的训练和构建，同时完成输出预测，获得下一个时间可能被访问的
+        try {//处理训练模型时发生的异常
+            predictedStartimeAndEndTime = MLAnalyzer.TranningAndPredict();
+            long predited_Startime = predictedStartimeAndEndTime[0];
+            long predited_Endtime = predictedStartimeAndEndTime[1];//获得预测的下一个时间段，哪些数据可能被访问到
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }finally {
+            long predited_Startime = 0;
+            long predited_Endtime = 0;//获得预测的下一个时间段，哪些数据可能被访问到
+        }
+
         if (analyzedFeatruedList.isEmpty()){//如果结果是空的，那就什么也不做
             queryTimeStart = 1707322260000L;
             queryTimeInterval = 250000;

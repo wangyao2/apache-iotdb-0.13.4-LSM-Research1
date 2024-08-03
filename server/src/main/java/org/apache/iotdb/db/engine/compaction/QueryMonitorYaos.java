@@ -14,10 +14,7 @@ import org.slf4j.LoggerFactory;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.List;
-import java.util.Random;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -37,12 +34,11 @@ public class QueryMonitorYaos {
             LoggerFactory.getLogger(IoTDBConstant.COMPACTION_LOGGER_NAME);
     private static ArrayList<QueryPlan> QueryQRList = new ArrayList<>();//每一个新到达的query都添加进来作为备用
     private static ArrayList<QueryContext> ContextCTList = new ArrayList<>();//每一个新到达的query都添加进来作为备用
-    private static long StartTimeFeatueOfABatchQuerys = 0;
-    private static long IntervalTimeFeatueOfABatchQuerys = 0;
-    private static long EndTimeFeatueOfABatchQuerys = 0;
 
     private static ArrayList<FeatureofOneQuery> QueryFeaturesList = new ArrayList<>();//记录每一个范围查询的查询间隔
-    private static ArrayList<FeatureofOneQuery> QueryFeaturesGloablList = new ArrayList<>();//记录一批查询结果的几个特征
+    private static ArrayList<FeatureofGroupQuery> QueryFeaturesGloablList = new ArrayList<>();//记录一批查询结果的几个特征
+
+    private static ArrayList<FeatureofOneQuery> QueryFeaturesMeanShiftList = new ArrayList<>();//用于对比实验的MeanShift的特征统计，还有质心法的特征统计
 
     //private static ArrayList<Long> QueryInterval = new ArrayList<>();//记录每一个范围查询的查询间隔
     //private static ArrayList<Long> QueryStartTime = new ArrayList<>();//记录每一个范围查询的查询开始时间
@@ -53,6 +49,10 @@ public class QueryMonitorYaos {
 
     public static QueryMonitorYaos getInstance() {
         return INSTANCE;
+    }
+
+    public static ArrayList<FeatureofGroupQuery> getQueryFeaturesGloablList() {
+        return QueryFeaturesGloablList;
     }
 
     public void addAquery(QueryPlan queryPlan, QueryContext context) {
@@ -77,7 +77,7 @@ public class QueryMonitorYaos {
         QueryFeaturesList.clear();//分析完一批之后，就清空里面的内容
         ContextCTList.clear();//分析完一批之后，就清空里面的内容
 
-        for (QueryPlan queryPlan : QueryQRList) {//这个链表是按照查询负载的到达顺序存储的
+        for (QueryPlan queryPlan : QueryQRList) {//这个链表是按照查询负载的到达顺序存储的，过滤到非范围查询
             IExpression expression;//临时创建一个空对象指针，节省空间
             //todo 外区间范围查询暂未修复，预计不会使用
             if (queryPlan instanceof GroupByTimePlan) {
@@ -140,14 +140,18 @@ public class QueryMonitorYaos {
                 LOGGER.debug("Current queryPlan is {} which is not matched", queryPlan);
             }
         }
-        for (QueryContext context : ContextCTList) {
-
-        }
-        analyzeTheQueryListToSegmentFeatures();//使用分析方法，把收到的查询负载解析成很多特征和标签样式
+//        Collections.sort(ContextCTList, new Comparator<QueryContext>() {//无需排序就按照数据库接收到查询请求的顺序去做
+//            @Override
+//            public int compare(QueryContext o1, QueryContext o2) {
+//                return Long.compare(o1.getStartTime(), o2.getStartTime());
+//            }
+//        });
+        ConvertTheQueryListToSegmentFeatures();//使用分析方法，把收到的查询负载解析成很多特征和标签样式
         analyzeTheGolableFeatures_UsingMeanShift();//使用方法分析，收集负载的特征，把负载解析成几个类型的特征，存储到QueryFeaturesGloablList内
         outputTheQueryFeatureToCsv_asTranningSample();//把收集到的负载写入到csv文件里
         QueryFeaturesList.clear();//分析完一批之后，就清空里面的内容
         QueryQRList.clear();
+        ContextCTList.clear();
         if (!QueryFeaturesGloablList.isEmpty()){
             System.out.println(QueryFeaturesGloablList.get(0));
         }
@@ -155,9 +159,22 @@ public class QueryMonitorYaos {
     }
 
     /**
-     * 用来汇总一段时间内的，并把结果封装到FeatureofOneQuery类里面返回
+     * 用来汇总一段时间内的所有查询，把他们切分成段
+     * 目前按照数量去分组，每一个组用 @FeatureofGroupQuery 去存放起来，在构造方法的时候，去计算每一个分组的统计量特征
+     * 当前收集到的一批查询负载被分成多个组，并且 使用 QueryFeaturesGloablList 列表存放每一个分组
      */
-    private void analyzeTheQueryListToSegmentFeatures() {
+    private void ConvertTheQueryListToSegmentFeatures() {
+        Long startTimeConxtex = ContextCTList.get(0).getStartTime();//现有一批查询的到达负载，收集这一批负载的到达时间
+        Long endTimeConxtex = ContextCTList.get(ContextCTList.size()-1).getStartTime();//收集到了一批查询负载，看看这一批查询最早是什么时候到达的
+
+        final int groupSize = 10;
+        int count = 1;
+        for (int i = 0; i < QueryFeaturesList.size(); i += groupSize) {
+            // 获取当前组的子列表
+            ArrayList<FeatureofOneQuery> AQuerygroup = new ArrayList<>(QueryFeaturesList.subList(i, Math.min(i + groupSize, QueryFeaturesList.size())));
+            ArrayList<QueryContext> AGroupContex = new ArrayList<>(ContextCTList.subList(i, Math.min(i + groupSize, ContextCTList.size())));
+            QueryFeaturesGloablList.add(new FeatureofGroupQuery(count++, AQuerygroup, AGroupContex));
+        }
 
 
     }
@@ -183,7 +200,7 @@ public class QueryMonitorYaos {
             EndTimeSum += featureofOneQuery.getEndTime();
         }
         double[] centroid = {startTimeSum / count, InetvalTimeSum / count, EndTimeSum / count};//计算质心，返回一个计算过的质心对象
-        QueryFeaturesGloablList.add(new FeatureofOneQuery((long) centroid[0],(long) centroid[1],(long) centroid[2]));
+        QueryFeaturesMeanShiftList.add(new FeatureofOneQuery((long) centroid[0],(long) centroid[1],(long) centroid[2]));
     }
 
     /**
@@ -194,7 +211,7 @@ public class QueryMonitorYaos {
         FeatureofOneQuery ARandomQuery = getRandomElement(QueryFeaturesList);//在这里进行空值的判断分析
         if (ARandomQuery != null){//如果不是空的，才进行分析
             FeatureofOneQuery OneGloableFeature = meanShift_moveToCentor(ARandomQuery, QueryFeaturesList, bandWith);
-            QueryFeaturesGloablList.add(OneGloableFeature);
+            QueryFeaturesMeanShiftList.add(OneGloableFeature);
         }
     }
 
@@ -254,7 +271,7 @@ public class QueryMonitorYaos {
             EndTimeSum += featureofOneQuery.getEndTime();
         }
         double[] centroid = {startTimeSum / count, InetvalTimeSum / count, EndTimeSum / count};//计算质心，返回一个计算过的质心对象
-        QueryFeaturesGloablList.add(new FeatureofOneQuery((long) centroid[0],(long) centroid[1],(long) centroid[2]));
+        QueryFeaturesMeanShiftList.add(new FeatureofOneQuery());
     }
 
     private static Pair<String, String> parseAndGetTimeRange_Q2(String sinput) {
@@ -357,7 +374,7 @@ public class QueryMonitorYaos {
         }
     }
 
-    public ArrayList<FeatureofOneQuery> getAnalyzedFeatruedList() {
+    public ArrayList<FeatureofGroupQuery> getAnalyzedFeatruedList() {
         System.out.println("返回访问统计时间...");
         return QueryFeaturesGloablList;
     }
@@ -490,6 +507,9 @@ public class QueryMonitorYaos {
             this.endTime = endTime;
         }
 
+        public FeatureofOneQuery() {
+        }
+
         @Override
         public String toString() {
             String formatstartTime = dateFormat.format(new Date(startTime));
@@ -530,6 +550,122 @@ public class QueryMonitorYaos {
                     + Math.pow(this.interval - other.interval, 2)
                     + Math.pow(this.endTime - other.endTime, 2));
             return sqrt;
+        }
+    }
+
+    public class FeatureofGroupQuery {
+        private long startTime = 0;
+        private long interval = 0;
+        private long endTime = 0;
+
+        private int QueryQuantity;
+        private int groupNum ;
+
+        private double start_mean;//这个是where关键字里面的内容，查询涉及的范围 开始
+        private double start_varian;
+
+        private double end_mean;//这个是where关键字里面的内容，查询涉及的范围 结束
+        private double end_varian;
+
+        private double QBegintime_mean;//这一个组内查询到达时间，查询到达时间的平均值和方差值
+        private double QBegintime_Varian;
+
+
+        public FeatureofGroupQuery(long startTime, long interval, long endTime) {
+            this.startTime = startTime;
+            this.interval = interval;
+            this.endTime = endTime;
+        }
+
+        public FeatureofGroupQuery(int num, ArrayList<FeatureofOneQuery> AQuerygroup, ArrayList<QueryContext> AGroupContex) {
+            this.groupNum = num;//赋予组号
+            this.QueryQuantity = AQuerygroup.size();//这一个分内查询的数量
+            // 计算每一个小分组内的平均值和方差
+            double[] stats_Startime = calculateGroupStatistics_StartTime(AQuerygroup);
+            this.start_mean = stats_Startime[0];
+            this.start_varian = stats_Startime[1];
+
+            double[] stats_endtime = calculateGroupStatistics_endtime(AQuerygroup);
+            this.end_mean = stats_endtime[0];
+            this.end_varian = stats_endtime[1];
+
+            double[] stats_QueryStartime = calculateGroupStatistics_StartTime_ofQuery(AGroupContex);
+            this.QBegintime_mean = stats_QueryStartime[0];
+            this.QBegintime_Varian = stats_QueryStartime[1];
+        }
+
+        public FeatureofGroupQuery(ArrayList<FeatureofOneQuery> group) {
+
+        }
+
+        @Override
+        public String toString() {
+            String formatstartTime = dateFormat.format(new Date(startTime));
+            String formatendTime = dateFormat.format(new Date(endTime));
+            return "{" +
+                    "startTime=" + formatstartTime +
+                    ", Interval=" + interval/1000 +
+                    "s, endTime=" + formatendTime +
+                    '}';
+        }
+        public long getStartTime() {
+            return startTime;
+        }
+
+        public long getInterval() {
+            return interval;
+        }
+
+        public long getEndTime() {
+            return endTime;
+        }
+
+        /**
+         * 用连续的几组作为特征去预测效果，目标是起始时间
+         */
+        public double[] toDoubleArray_TargetStartTime() {
+            // 创建一个double数组，长度为类的属性数量
+            double[] attributes = new double[11];
+            // 将每个属性转换为double并赋值到数组中
+            attributes[0] = startTime;
+            attributes[1] = interval;
+            attributes[2] = endTime;
+            attributes[3] = QueryQuantity;
+            attributes[4] = groupNum;
+            attributes[5] = start_mean;
+            attributes[6] = start_varian;
+            attributes[7] = end_mean;
+            attributes[8] = end_varian;
+            attributes[9] = QBegintime_mean;
+            attributes[10] = QBegintime_Varian;
+            // 返回封装后的数组
+            return attributes;
+
+
+        }
+
+        /**
+         * 用连续的几组作为特征去预测效果
+         */
+        public double[] toDoubleArray_WithMore_Groups() {
+            // 创建一个double数组，长度为类的属性数量
+            double[] attributes = new double[11];
+            // 将每个属性转换为double并赋值到数组中
+            attributes[0] = startTime;
+            attributes[1] = interval;
+            attributes[2] = endTime;
+            attributes[3] = QueryQuantity;
+            attributes[4] = groupNum;
+            attributes[5] = start_mean;
+            attributes[6] = start_varian;
+            attributes[7] = end_mean;
+            attributes[8] = end_varian;
+            attributes[9] = QBegintime_mean;
+            attributes[10] = QBegintime_Varian;
+            // 返回封装后的数组
+            return attributes;
+
+
         }
     }
 }
