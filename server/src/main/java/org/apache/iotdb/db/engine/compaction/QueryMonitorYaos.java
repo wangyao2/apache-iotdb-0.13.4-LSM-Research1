@@ -13,6 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.regex.Matcher;
@@ -57,7 +58,7 @@ public class QueryMonitorYaos {
 
     public void addAquery(QueryPlan queryPlan, QueryContext context) {
         //每次执行查询时，都把查询涉及到的设备和时间范围捕获过来，拿到
-        LOGGER.debug("接收到查询请求！ - {}", queryPlan);
+        //LOGGER.debug("接收到查询请求！ - {}", queryPlan);
         QueryQRList.add(queryPlan);
         ContextCTList.add(context);//暂时使用不到；现在启用，用来收集查询的开始时间
 //        analyzeTheQueryFeature();//暂时先放在这里，后面要移动到合并查询之前，进行查询样式的分析
@@ -69,13 +70,15 @@ public class QueryMonitorYaos {
      * 用来计算收集到的所有查询负载，获得每一个查询的<起始时间，查询时间跨度，结束时间>，并把它们放到QueryFeaturesList中以备后续分析计算
      */
     public void analyzeTheQueryFeature() {
-        System.out.println("正在计算序列的查询特征...");
-        if (QueryQRList.size() < 10) {
-            System.out.println("没有需要被分析的数据,或者搜集的查询数量过少！");
+        LOGGER.info("查询监视器：尝试提取序列的查询特征...");
+
+        if (QueryQRList.size() < 20) {
+            LOGGER.info("查询监视器：没有足够需要被分析的数据,或者搜集的查询数量过少！");
             return;
         }
         QueryFeaturesList.clear();//分析完一批之后，就清空里面的内容
-        ContextCTList.clear();//分析完一批之后，就清空里面的内容
+        QueryFeaturesGloablList.clear();
+        //ContextCTList.clear();//分析完一批之后，就清空里面的内容
 
         for (QueryPlan queryPlan : QueryQRList) {//这个链表是按照查询负载的到达顺序存储的，过滤到非范围查询
             IExpression expression;//临时创建一个空对象指针，节省空间
@@ -147,15 +150,13 @@ public class QueryMonitorYaos {
 //            }
 //        });
         ConvertTheQueryListToSegmentFeatures();//使用分析方法，把收到的查询负载解析成很多特征和标签样式
-        analyzeTheGolableFeatures_UsingMeanShift();//使用方法分析，收集负载的特征，把负载解析成几个类型的特征，存储到QueryFeaturesGloablList内
-        outputTheQueryFeatureToCsv_asTranningSample();//把收集到的负载写入到csv文件里
+        //analyzeTheGolableFeatures_UsingMeanShift();//使用方法分析，收集负载的特征，把负载解析成几个类型的特征，存储到QueryFeaturesGloablList内
+        DirectilyOutputTheQueryFeatureToCsv_asTranningSample();//把收集到的负载写入到csv文件里
         QueryFeaturesList.clear();//分析完一批之后，就清空里面的内容
         QueryQRList.clear();
         ContextCTList.clear();
-        if (!QueryFeaturesGloablList.isEmpty()){
-            System.out.println(QueryFeaturesGloablList.get(0));
-        }
-        System.out.println("pasue to debug");
+
+        System.out.println("Query Monitor has finished the Spilt Query List !");
     }
 
     /**
@@ -164,8 +165,12 @@ public class QueryMonitorYaos {
      * 当前收集到的一批查询负载被分成多个组，并且 使用 QueryFeaturesGloablList 列表存放每一个分组
      */
     private void ConvertTheQueryListToSegmentFeatures() {
-        Long startTimeConxtex = ContextCTList.get(0).getStartTime();//现有一批查询的到达负载，收集这一批负载的到达时间
-        Long endTimeConxtex = ContextCTList.get(ContextCTList.size()-1).getStartTime();//收集到了一批查询负载，看看这一批查询最早是什么时候到达的
+        if (!ContextCTList.isEmpty()){
+            QueryContext FirstContext = ContextCTList.get(0);
+            Long startTimeConxtex = FirstContext.getStartTime();//现有一批查询的到达负载，收集这一批负载的到达时间
+            QueryContext EndContext = ContextCTList.get(ContextCTList.size() - 1);
+            Long endTimeConxtex = EndContext.getStartTime();//收集到了一批查询负载，看看这一批查询最早是什么时候到达的
+        }
 
         final int groupSize = 10;
         int count = 1;
@@ -175,8 +180,6 @@ public class QueryMonitorYaos {
             ArrayList<QueryContext> AGroupContex = new ArrayList<>(ContextCTList.subList(i, Math.min(i + groupSize, ContextCTList.size())));
             QueryFeaturesGloablList.add(new FeatureofGroupQuery(count++, AQuerygroup, AGroupContex));
         }
-
-
     }
 
     /**
@@ -374,14 +377,15 @@ public class QueryMonitorYaos {
         }
     }
 
-    public ArrayList<FeatureofGroupQuery> getAnalyzedFeatruedList() {
-        System.out.println("返回访问统计时间...");
+    public ArrayList<FeatureofGroupQuery> getAnalyzedGroupsFeatruedList() {
+        LOGGER.debug("返回访问统计时间...");
         return QueryFeaturesGloablList;
     }
 
     public void clearFeatures() {
         QueryFeaturesList.clear();
-        QueryFeaturesGloablList.clear();
+        QueryQRList.clear();
+        ContextCTList.clear();
     }
 
     /**
@@ -397,9 +401,9 @@ public class QueryMonitorYaos {
     }
 
     /**
-     * 预测算法前测试，把收集到的负载全都写入到CSV文件，或者生成为ML可训练的样本
+     * 预测算法前测试，把收集到的负载，直接地全都写入到CSV文件，或者生成为ML可训练的样本
      */
-    public void outputTheQueryFeatureToCsv_asTranningSample() {
+    public void DirectilyOutputTheQueryFeatureToCsv_asTranningSample() {
         // 使用FileWriter写入文件
         FeatureofOneQuery feature = null;
         QueryContext context = null;
@@ -553,10 +557,14 @@ public class QueryMonitorYaos {
         }
     }
 
+
+    /**
+     * 用来记录一组查询的特征，如果涉及到更多特征的话，那么再考虑追加其他特征
+     */
     public class FeatureofGroupQuery {
-        private long startTime = 0;
-        private long interval = 0;
-        private long endTime = 0;
+        private long startTime;
+        private long interval;
+        private long endTime;
 
         private int QueryQuantity;
         private int groupNum ;
@@ -600,14 +608,14 @@ public class QueryMonitorYaos {
 
         @Override
         public String toString() {
-            String formatstartTime = dateFormat.format(new Date(startTime));
-            String formatendTime = dateFormat.format(new Date(endTime));
+            String formatstartTime = dateFormat.format(new Date((long) start_mean));
+            String formatendTime = dateFormat.format(new Date((long) end_mean));
             return "{" +
                     "startTime=" + formatstartTime +
-                    ", Interval=" + interval/1000 +
-                    "s, endTime=" + formatendTime +
+                    "endTime=" + formatendTime +
                     '}';
         }
+
         public long getStartTime() {
             return startTime;
         }
@@ -621,27 +629,36 @@ public class QueryMonitorYaos {
         }
 
         /**
+         * 返回一组的收集的查询负载，具有哪些属性
+         */
+        public String getArrtbutes() {
+            Field[] fields = FeatureofGroupQuery.class.getDeclaredFields();
+            List<String> fieldNames = new ArrayList<>();
+
+            for (Field field : fields) {
+                fieldNames.add(field.getName());
+            }
+            // 使用逗号拼接属性名
+            return String.join(",", fieldNames);
+        }
+
+
+        /**
          * 用连续的几组作为特征去预测效果，目标是起始时间
          */
-        public double[] toDoubleArray_TargetStartTime() {
+        public double[] toDoubleValueArray_TargetStartTime() {
             // 创建一个double数组，长度为类的属性数量
-            double[] attributes = new double[11];
+            double[] attributes = new double[7];
             // 将每个属性转换为double并赋值到数组中
-            attributes[0] = startTime;
-            attributes[1] = interval;
-            attributes[2] = endTime;
-            attributes[3] = QueryQuantity;
-            attributes[4] = groupNum;
-            attributes[5] = start_mean;
-            attributes[6] = start_varian;
-            attributes[7] = end_mean;
-            attributes[8] = end_varian;
-            attributes[9] = QBegintime_mean;
-            attributes[10] = QBegintime_Varian;
+            attributes[0] = groupNum;
+            attributes[1] = start_mean;
+            attributes[2] = start_varian;
+            attributes[3] = end_mean;
+            attributes[4] = end_varian;
+            attributes[5] = QBegintime_mean;
+            attributes[6] = QBegintime_Varian;
             // 返回封装后的数组
             return attributes;
-
-
         }
 
         /**
@@ -664,7 +681,6 @@ public class QueryMonitorYaos {
             attributes[10] = QBegintime_Varian;
             // 返回封装后的数组
             return attributes;
-
 
         }
     }

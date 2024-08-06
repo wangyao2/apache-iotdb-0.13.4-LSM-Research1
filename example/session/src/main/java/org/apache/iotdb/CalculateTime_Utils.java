@@ -20,7 +20,7 @@ import java.util.regex.Pattern;
 public class CalculateTime_Utils {
 
     public static void main(String[] args) throws ParseException {
-        System.out.println(LongToData(1706754528000L, false));
+        System.out.println(LongToData(1722749677827L, false));
         System.out.println(LongToData(1706754150000L, false));
         System.out.println(Math.pow(1707322260000L - 0L, 2));
         System.out.println(Math.pow(1707322260000L - 1707321900000L, 2));

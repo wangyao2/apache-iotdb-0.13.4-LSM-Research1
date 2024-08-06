@@ -93,32 +93,39 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
     public void selectAndSubmit() {
         PriorityQueue<Pair<List<TsFileResource>, Long>> taskPriorityQueue = //被选中的文件都存在taskPriorityQueue队列里面了
                 new PriorityQueue<>(new SizeTieredCompactionTaskComparator());
-
+        //在文件选择的时候，就不再去分析查询特征了，而是直接调用分析器解析出结果
+        //我们在文件选择的时候，就单纯调用分析出来的结果，分析过程在 VSG的方法executeCompaction()里面
         MLQueryAnalyzerYaos MLAnalyzer = MLQueryAnalyzerYaos.getInstance();
         QueryMonitorYaos monitorYaos = QueryMonitorYaos.getInstance();
 
-        ArrayList<QueryMonitorYaos.FeatureofGroupQuery> analyzedFeatruedList = monitorYaos.getAnalyzedFeatruedList();//获得计算的访问负载特征，查询的起始时间
-        MLAnalyzer.setQuery(QueryMonitorYaos.getQueryFeaturesGloablList());//把 负载收集器 收集到的结果 发送给 机器学习预测器
-        long[] predictedStartimeAndEndTime = null;//调用模型的训练和构建，同时完成输出预测，获得下一个时间可能被访问的
-        try {//处理训练模型时发生的异常
-            predictedStartimeAndEndTime = MLAnalyzer.TranningAndPredict();
-            long predited_Startime = predictedStartimeAndEndTime[0];
-            long predited_Endtime = predictedStartimeAndEndTime[1];//获得预测的下一个时间段，哪些数据可能被访问到
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }finally {
-            long predited_Startime = 0;
-            long predited_Endtime = 0;//获得预测的下一个时间段，哪些数据可能被访问到
+        ArrayList<QueryMonitorYaos.FeatureofGroupQuery> analyzedGroupFeatruedList = monitorYaos.getAnalyzedGroupsFeatruedList();//获得计算的访问负载特征，查询的起始时间
+        if (!analyzedGroupFeatruedList.isEmpty()){//查询数量足够，而且不是空的条件下才去执行ML分析
+            LOGGER.info("文件选择器：获取到一批足量查询负载，可以继续ML分析....");
+            MLAnalyzer.setQuery(QueryMonitorYaos.getQueryFeaturesGloablList());//把 负载收集器 收集到的结果 发送给 机器学习预测器
+            long[] predictedStartimeAndEndTime = null;//调用模型的训练和构建，同时完成输出预测，获得下一个时间可能被访问的
+            try {//处理训练模型时发生的异常
+                predictedStartimeAndEndTime = MLAnalyzer.TranningAndPredict();
+                long predited_Startime = predictedStartimeAndEndTime[0];
+                long predited_Endtime = predictedStartimeAndEndTime[1];//获得预测的下一个时间段，哪些数据可能被访问到
+            } catch (Exception e) {
+                e.printStackTrace();
+                throw new RuntimeException(e);
+            }finally {
+                long predited_Startime = 0;
+                long predited_Endtime = 0;//获得预测的下一个时间段，哪些数据可能被访问到
+            }
+        }else {
+            LOGGER.info("文件选择器：没有收集到足够的查询负载");
         }
+        //monitorYaos.clearFeatures();//在前面拿到特征之后，清空所有的元素
 
-        if (analyzedFeatruedList.isEmpty()){//如果结果是空的，那就什么也不做
+        if (analyzedGroupFeatruedList.isEmpty()){//如果结果是空的，那就什么也不做，后面考虑弃用这个方法，这个是获得单组的时间片段
             queryTimeStart = 1707322260000L;
             queryTimeInterval = 250000;
         }else {//如果有返回的统计结果
-            queryTimeStart = analyzedFeatruedList.get(0).getStartTime();//现阶段只分析获取的第一个元素
-            queryTimeInterval = analyzedFeatruedList.get(0).getInterval();
+            queryTimeStart = analyzedGroupFeatruedList.get(0).getStartTime();//现阶段只分析获取的第一个元素
+            queryTimeInterval = analyzedGroupFeatruedList.get(0).getInterval();
         }
-        monitorYaos.clearFeatures();
         try {
             int maxLevel = searchMaxFileLevel();
             for (int currentLevel = 0; currentLevel <= maxLevel; currentLevel++) {
