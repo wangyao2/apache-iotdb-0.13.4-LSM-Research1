@@ -99,6 +99,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
         QueryMonitorYaos monitorYaos = QueryMonitorYaos.getInstance();
 
         ArrayList<QueryMonitorYaos.FeatureofGroupQuery> analyzedGroupFeatruedList = monitorYaos.getAnalyzedGroupsFeatruedList();//获得计算的访问负载特征，查询的起始时间
+        //todo 如果近期没有收集到足够的查询负载，那么就按照通常的原始合并去做。会直接跳过ML分析步骤
         if (!analyzedGroupFeatruedList.isEmpty()){//查询数量足够，而且不是空的条件下才去执行ML分析
             LOGGER.info("文件选择器：获取到一批足量查询负载，可以继续ML分析....");
             MLAnalyzer.setQuery(QueryMonitorYaos.getQueryFeaturesGloablList());//把 负载收集器 收集到的结果 发送给 机器学习预测器

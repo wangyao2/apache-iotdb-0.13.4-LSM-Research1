@@ -484,9 +484,11 @@ public class QueryMonitorYaos {
         double sum = 0.0;
         double squareSum = 0.0;
         for (QueryContext feature : group) {
-            double value = feature.getStartTime();
-            sum += value;
-            squareSum += value * value;
+            if (feature != null){
+                double value = feature.getStartTime();
+                sum += value;
+                squareSum += value * value;
+            }
         }
         double mean = sum / group.size();
         double variance = (squareSum / group.size()) - (mean * mean);
