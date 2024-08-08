@@ -99,7 +99,17 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
         MLQueryAnalyzerYaos MLAnalyzer = MLQueryAnalyzerYaos.getInstance();
         QueryMonitorYaos monitorYaos = QueryMonitorYaos.getInstance();
         //借助QueryMonitorYaos  monitorYaos去分析当前一批查询密度较高的地方
-        double[] Clustered_startTimeSum_InetvalTimeSum_EndTimeSum = monitorYaos.analyzeTheGolableFeatures_UsingNormalCentroid();
+        //double[] Clustered_startTimeSum_InetvalTimeSum_EndTimeSum = monitorYaos.analyzeTheGolableFeatures_UsingNormalCentroid();
+        /*
+            在开始ML分析之前，就已经借助VSG，在ML训练之前，就已经分析好了当前查询的密集点
+            分析出来的当前结果由 Clustered_startTimeSum_InetvalTimeSum_EndTimeSum变量负责保存
+         */
+        double[] Clustered_startTimeSum_InetvalTimeSum_EndTimeSum = new double[3];
+        ArrayList<QueryMonitorYaos.FeatureofOneQuery> queryFeaturesMeanShiftList = QueryMonitorYaos.getQueryFeaturesMeanShiftList();
+        System.out.println(queryFeaturesMeanShiftList.get(0));
+        Clustered_startTimeSum_InetvalTimeSum_EndTimeSum[0] = queryFeaturesMeanShiftList.get(0).getStartTime();
+        Clustered_startTimeSum_InetvalTimeSum_EndTimeSum[1] = queryFeaturesMeanShiftList.get(0).getInterval();
+        Clustered_startTimeSum_InetvalTimeSum_EndTimeSum[2] = queryFeaturesMeanShiftList.get(0).getEndTime();
 
         long predited_Startime = 0;
         long predited_Endtime = 0;
@@ -137,6 +147,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
 
         queryTimeStart = Clustered_Startime;//把预测的下一个时间段的可能访问长度给预测出来
         queryTimeEnd = Clustered_Endtime;//把预测的下一个时间段的可能访问长度给预测出来
+        queryTimeInterval = (long) Clustered_startTimeSum_InetvalTimeSum_EndTimeSum[1];
 
         try {
             int maxLevel = searchMaxFileLevel();
@@ -148,7 +159,9 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                 }
             }
             while (taskPriorityQueue.size() > 0) { //前面可能遍历得到了好几批，候选文件的集和，这里分别把他们提交成任务
-                createAndSubmitTask(taskPriorityQueue.poll().left); //如果有待合并的文件，那么就就提交这个任务
+                LOGGER.info("文件选择器：选择了一批文件，但是并不提交合并任务。选择的文件是： ");//即使选择出来了文件，但是先不进行合并任务提交，先阻塞
+                System.out.println(taskPriorityQueue.poll().left);
+                //createAndSubmitTask(taskPriorityQueue.poll().left); //如果有待合并的文件，那么就就提交这个任务
             }
         } catch (Exception e) {
             LOGGER.error("Exception occurs while selecting files", e);

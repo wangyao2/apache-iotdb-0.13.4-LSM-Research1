@@ -151,6 +151,7 @@ public class QueryMonitorYaos {
 //        });
         ConvertTheQueryListToSegmentFeatures();//使用分析方法，把收到的查询负载解析成很多特征和标签样式
         //analyzeTheGolableFeatures_UsingMeanShift();//使用方法分析，收集负载的特征，把负载解析成几个类型的特征，存储到QueryFeaturesGloablList内
+        analyzeTheGolableFeatures_UsingNormalCentroid();
         DirectilyOutputTheQueryFeatureToCsv_asTranningSample();//把收集到的负载写入到csv文件里
         QueryFeaturesList.clear();//分析完一批之后，就清空里面的内容
         QueryQRList.clear();
@@ -209,6 +210,9 @@ public class QueryMonitorYaos {
     }
 
     public static ArrayList<FeatureofOneQuery> getQueryFeaturesMeanShiftList() {
+        if (!QueryFeaturesMeanShiftList.isEmpty()){
+            System.out.println(QueryFeaturesMeanShiftList.get(0));
+        }
         return QueryFeaturesMeanShiftList;
     }
     /**
