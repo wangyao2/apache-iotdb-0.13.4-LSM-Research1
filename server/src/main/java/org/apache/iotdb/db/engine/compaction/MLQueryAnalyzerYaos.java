@@ -53,30 +53,40 @@ public class MLQueryAnalyzerYaos {
         // 声明样本集的特征有哪些，特征属性，已经声明在前面了，一个string 类型的字符串，方便后续调用使用
         ArrayList<Attribute> arrt = new ArrayList<>();
         String[] arrtibutts = Arrtibutes.split(",");
-        for (String arrtibutt : arrtibutts) {
-            arrt.add(new Attribute(arrtibutt));
-        }
-        int ArrtSize = arrt.size();//样本集中属性的长度，包含末尾的标签
-        double[] sample;
-        Instances TranningData = new Instances("dataset", arrt, 0);//创建用于训练的样本数据
 
+        int[] TranningDataindices = {0, 1, 3, 5};//从原始样本集中，提取某几列作为样本集
+        for (int index : TranningDataindices) {
+            arrt.add(new Attribute(arrtibutts[index]));
+        }
+        arrt.add(new Attribute(arrtibutts[arrtibutts.length - 1]));//这里单独列出来，把最后一个元素存入
+        int ArrtSize = arrt.size();//样本集中属性的长度，包含末尾的标签
+
+        double[] sample; //7维
+        double[] downSamplingSample = new double[TranningDataindices.length];
+        Instances TranningData = new Instances("dataset", arrt, 0);//创建用于训练的样本数据
         int SegmentNums = QuerySegmentFeatures.size();//判断收集到了多少个 可以训练的样本组，最大组数，用来协助划分
         //for循环遍历每一个收集到的 样本段，将其封装成一个可用训练集
         for (int g = 0; g < SegmentNums; g++){ //不能用增强for循环，这样就没法访问到相邻的其他元素了
             QueryMonitorYaos.FeatureofGroupQuery QuerySegmentWithFeature = QuerySegmentFeatures.get(g);
             sample = QuerySegmentWithFeature.toDoubleValueArray_TargetStartTime();//把内部所有的属性的数值都转化成一个double[]数组，方便构建可训练的实例对象
+            int count = 0;
+            for (int index : TranningDataindices) {
+                downSamplingSample[count++] = sample[index];//只保留关注的那部分属性列
+            }
+
             if (g == SegmentNums -1|| (int) sample[0] == SegmentNums){//sample的第一个元素是组号，如果是最后一个组，则无需，也无法获得下一个时间段的 查询值 ，将其作为预测对象
                 //
-                double[] newArray = new double[ArrtSize];//这里+1是填入target标签的长度
-                System.arraycopy(sample, 0, newArray, 0, sample.length);//前n-1个元素作为X，样本集，最后一个元素，使用标签y填充，用下一个时刻的值填充
-                newArray[sample.length] = 0;//如果是最后一个元素，那么就没有训练的标签，应该作为 被预测的对象使用
+                double[] newArray = new double[ArrtSize];//这里包含了target标签的长度
+
+                System.arraycopy(downSamplingSample, 0, newArray, 0, downSamplingSample.length);//前n-1个元素作为X，样本集，最后一个元素，使用标签y填充，用下一个时刻的值填充
+                newArray[downSamplingSample.length] = 0;//如果是最后一个元素，那么就没有训练的标签，应该作为 被预测的对象使用
                 TranningData.add(new DenseInstance(1.0,newArray));//用数组封装构建成样本
 
             } else{//其他组（不是最后一个组），就把下一个时刻的 起始时间作为预测的 标签y，放入到sample数据的最后一个元素
                 double[] newArray = new double[ArrtSize];//这里填入target标签的长度，整个样本的长度已经
-                System.arraycopy(sample, 0, newArray, 0, sample.length);//前n-1个元素作为X，样本集，最后一个元素，使用标签y填充，用下一个时刻的值填充
+                System.arraycopy(downSamplingSample, 0, newArray, 0, downSamplingSample.length);//前n-1个元素作为X，样本集，最后一个元素，使用标签y填充，用下一个时刻的值填充
                 //newArray数组的最后一个元素,用下一个分段的值填充,例如sample[1]，把下一个时间段的起始时间作为预测目标值
-                newArray[sample.length] = QuerySegmentFeatures.get(g+1).toDoubleValueArray_TargetStartTime()[1];
+                newArray[downSamplingSample.length] = QuerySegmentFeatures.get(g+1).toDoubleValueArray_TargetStartTime()[1];
                 TranningData.add(new DenseInstance(1.0,newArray));//用数组封装构建成样本
             }
         }
@@ -97,19 +107,37 @@ public class MLQueryAnalyzerYaos {
 
         model.buildClassifier(train_SpiltData);
 
+        //3 给出预测结果
         Instance lastInstance = TranningData.lastInstance();
         System.out.println("被预测样本：" + lastInstance);
-        //3 给出预测结果，封装到list内
-        Instance TestInstance = TranningData.instance(TranningData.size() - 1);
-        System.out.println("被预测样本，待定：" + TestInstance);
         double Predicted_startTime = model.classifyInstance(lastInstance);
         System.out.println("预测的时间戳：" + Predicted_startTime);
-        startTime_And_EndTime[0] = (long) 1;
+
+        Instance TestInstance1 = TranningData.instance(TranningData.size() - 2);
+        System.out.println("被预测样本" + TestInstance1);
+        System.out.println("预测的时间戳：" + model.classifyInstance(TestInstance1));
+
+        Instance TestInstance2 = TranningData.instance(TranningData.size() - 4);
+        System.out.println("被预测样本" + TestInstance2);
+        System.out.println("预测的时间戳：" + model.classifyInstance(TestInstance2));
+
+        startTime_And_EndTime[0] = (long) Predicted_startTime;
         //++++++++++++++++++++前面预测++++++下一个查询涉及的起始时间++++++++++++++++++
         //++++++++++++++++++++下面预测++++++下一个查询涉及的起始时间++++++++++++++++++
 
         startTime_And_EndTime[1] = (long) 2;
         QuerySegmentFeatures.clear();//这个列表的清空，也会导致QueryMonitor中的元素清空
+        return startTime_And_EndTime;
+    }
+
+    /**
+     * 对外暴露，训练模型，通过聚类等方法获取最近一批查询密度最高的地方，这一部分由负载收集器去处理
+     */
+    public long[] ClusteringTheCurrentQueryRrange() {
+        long[] startTime_And_EndTime = new long[2];
+
+        startTime_And_EndTime[0] = 0;
+        startTime_And_EndTime[1] = 0;
         return startTime_And_EndTime;
     }
 
@@ -212,6 +240,7 @@ public class MLQueryAnalyzerYaos {
 //                    ", Predicted=" + testData.classAttribute().value((int) pred));
 //        }
     }
+
 
 
 }

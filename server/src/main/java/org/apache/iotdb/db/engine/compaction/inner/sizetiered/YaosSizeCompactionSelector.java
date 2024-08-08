@@ -62,6 +62,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
     private static IoTDBConfig config = IoTDBDescriptor.getInstance().getConfig();
 
     private long queryTimeStart= 1706716805000L;//2024-02-01 00:00:05 的 long类型时间戳
+    private long queryTimeEnd= 1706716805000L;//2024-02-01 00:00:05 的 long类型时间戳
     private long queryTimeInterval = 604800000L;//86400000 * 7 = 604800000
     //这个参数在zhanglingzhe的代码中单独作为一个静态参数，据说是根据python分析的结果反写回来的
 
@@ -97,36 +98,46 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
         //我们在文件选择的时候，就单纯调用分析出来的结果，分析过程在 VSG的方法executeCompaction()里面
         MLQueryAnalyzerYaos MLAnalyzer = MLQueryAnalyzerYaos.getInstance();
         QueryMonitorYaos monitorYaos = QueryMonitorYaos.getInstance();
+        //借助QueryMonitorYaos  monitorYaos去分析当前一批查询密度较高的地方
+        double[] Clustered_startTimeSum_InetvalTimeSum_EndTimeSum = monitorYaos.analyzeTheGolableFeatures_UsingNormalCentroid();
 
+        long predited_Startime = 0;
+        long predited_Endtime = 0;
+        long Clustered_Startime = 0;
+        long Clustered_Endtime = 0;
         ArrayList<QueryMonitorYaos.FeatureofGroupQuery> analyzedGroupFeatruedList = monitorYaos.getAnalyzedGroupsFeatruedList();//获得计算的访问负载特征，查询的起始时间
         //todo 如果近期没有收集到足够的查询负载，那么就按照通常的原始合并去做。会直接跳过ML分析步骤
         if (!analyzedGroupFeatruedList.isEmpty()){//查询数量足够，而且不是空的条件下才去执行ML分析
             LOGGER.info("文件选择器：获取到一批足量查询负载，可以继续ML分析....");
             MLAnalyzer.setQuery(QueryMonitorYaos.getQueryFeaturesGloablList());//把 负载收集器 收集到的结果 发送给 机器学习预测器
             long[] predictedStartimeAndEndTime = null;//调用模型的训练和构建，同时完成输出预测，获得下一个时间可能被访问的
+            long[] ClusteredStartimeAndEndTime = null;//调用模型的训练和构建，同时完成输出预测，获得下一个时间可能被访问的
+
             try {//处理训练模型时发生的异常
-                predictedStartimeAndEndTime = MLAnalyzer.TranningAndPredict();
-                long predited_Startime = predictedStartimeAndEndTime[0];
-                long predited_Endtime = predictedStartimeAndEndTime[1];//获得预测的下一个时间段，哪些数据可能被访问到
+                predictedStartimeAndEndTime = MLAnalyzer.TranningAndPredict();//预测即将会被访问到的数据
+                //ClusteredStartimeAndEndTime = MLAnalyzer.ClusteringTheCurrentQueryRrange();//汇总当前被访问到的数据，已经改掉了，现在是借助查询分析器去找负载中心
+
+                predited_Startime = predictedStartimeAndEndTime[0];
+                predited_Endtime = predictedStartimeAndEndTime[1];//获得预测的下一个时间段，哪些数据可能被访问到
+
+                Clustered_Startime = (long) Clustered_startTimeSum_InetvalTimeSum_EndTimeSum[0];
+                Clustered_Endtime = (long) Clustered_startTimeSum_InetvalTimeSum_EndTimeSum[2];//获得预测的下一个时间段，哪些数据可能被访问到
             } catch (Exception e) {
                 e.printStackTrace();
                 throw new RuntimeException(e);
-            }finally {
-                long predited_Startime = 0;
-                long predited_Endtime = 0;//获得预测的下一个时间段，哪些数据可能被访问到
             }
         }else {
             LOGGER.info("文件选择器：没有收集到足够的查询负载");
         }
         //monitorYaos.clearFeatures();//在前面拿到特征之后，清空所有的元素
 
-        if (analyzedGroupFeatruedList.isEmpty()){//如果结果是空的，那就什么也不做，后面考虑弃用这个方法，这个是获得单组的时间片段
-            queryTimeStart = 1707322260000L;
-            queryTimeInterval = 250000;
-        }else {//如果有返回的统计结果
-            queryTimeStart = analyzedGroupFeatruedList.get(0).getStartTime();//现阶段只分析获取的第一个元素
-            queryTimeInterval = analyzedGroupFeatruedList.get(0).getInterval();
-        }
+        queryTimeStart = predited_Startime * 1000 + 1706700000000L;//把预测的下一个时间段的可能访问长度给预测出来
+        queryTimeEnd = predited_Endtime * 1000 + 1706700000000L;//把预测的下一个时间段的可能访问长度给预测出来
+        queryTimeInterval = queryTimeEnd - queryTimeStart;
+
+        queryTimeStart = Clustered_Startime;//把预测的下一个时间段的可能访问长度给预测出来
+        queryTimeEnd = Clustered_Endtime;//把预测的下一个时间段的可能访问长度给预测出来
+
         try {
             int maxLevel = searchMaxFileLevel();
             for (int currentLevel = 0; currentLevel <= maxLevel; currentLevel++) {

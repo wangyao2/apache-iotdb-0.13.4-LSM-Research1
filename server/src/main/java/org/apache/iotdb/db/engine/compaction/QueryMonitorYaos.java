@@ -193,8 +193,9 @@ public class QueryMonitorYaos {
 
     /**
      * 使用普通质心法去分析一批查询负载的访问特征
+     * 返回结果 double[] centroid = {startTimeSum / count, InetvalTimeSum / count, EndTimeSum / count}
      */
-    private void analyzeTheGolableFeatures_UsingNormalCentroid() {
+    public double[] analyzeTheGolableFeatures_UsingNormalCentroid() {
         int count = QueryFeaturesList.size();
         double startTimeSum = 0.0, InetvalTimeSum = 0.0, EndTimeSum = 0.0;
         for (FeatureofOneQuery featureofOneQuery : QueryFeaturesList) {
@@ -204,8 +205,12 @@ public class QueryMonitorYaos {
         }
         double[] centroid = {startTimeSum / count, InetvalTimeSum / count, EndTimeSum / count};//计算质心，返回一个计算过的质心对象
         QueryFeaturesMeanShiftList.add(new FeatureofOneQuery((long) centroid[0],(long) centroid[1],(long) centroid[2]));
+        return centroid;
     }
 
+    public static ArrayList<FeatureofOneQuery> getQueryFeaturesMeanShiftList() {
+        return QueryFeaturesMeanShiftList;
+    }
     /**
      * 使用meanShift法去分析一批查询负载的访问特征
      */
@@ -217,6 +222,7 @@ public class QueryMonitorYaos {
             QueryFeaturesMeanShiftList.add(OneGloableFeature);
         }
     }
+
 
     /**
      * 使用meanShift相关的算法，传入一个随机点point，以这个点出发，寻找一个聚类中心
@@ -516,6 +522,7 @@ public class QueryMonitorYaos {
         public FeatureofOneQuery() {
         }
 
+
         @Override
         public String toString() {
             String formatstartTime = dateFormat.format(new Date(startTime));
@@ -653,11 +660,11 @@ public class QueryMonitorYaos {
             double[] attributes = new double[7];
             // 将每个属性转换为double并赋值到数组中
             attributes[0] = groupNum;
-            attributes[1] = start_mean;
+            attributes[1] = (start_mean - 1706700000000L) / 1000;
             attributes[2] = start_varian;
-            attributes[3] = end_mean;
+            attributes[3] = (end_mean - 1706700000000L) / 1000;
             attributes[4] = end_varian;
-            attributes[5] = QBegintime_mean;
+            attributes[5] = (QBegintime_mean - 1706700000000L) / 1000;
             attributes[6] = QBegintime_Varian;
             // 返回封装后的数组
             return attributes;
