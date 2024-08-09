@@ -140,14 +140,17 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
             LOGGER.info("文件选择器：没有收集到足够的查询负载");
         }
         //monitorYaos.clearFeatures();//在前面拿到特征之后，清空所有的元素
+        //todo 合并收益分析以及预测和聚类方法的联合编程模式，联合多树的合并模式分析
+        long cluster_queryTimeStart = Clustered_Startime;//把预测的下一个时间段的可能访问长度给预测出来
+        long cluster_queryTimeEnd = Clustered_Endtime;//把预测的下一个时间段的可能访问长度给预测出来
+        long cluster_queryTimeInterval = cluster_queryTimeEnd - cluster_queryTimeStart;
 
-        queryTimeStart = predited_Startime * 1000 + 1706700000000L;//把预测的下一个时间段的可能访问长度给预测出来
-        queryTimeEnd = predited_Endtime * 1000 + 1706700000000L;//把预测的下一个时间段的可能访问长度给预测出来
-        queryTimeInterval = queryTimeEnd - queryTimeStart;
+        long next_queryTimeStart = predited_Startime * 1000 + 1706700000000L;//把预测的下一个时间段的可能访问长度给预测出来
+        long next_queryTimeEnd = predited_Endtime * 1000 + 1706700000000L;//把预测的下一个时间段的可能访问长度给预测出来
+        long next_queryTimeInterval = (long) Clustered_startTimeSum_InetvalTimeSum_EndTimeSum[1];
 
-        queryTimeStart = Clustered_Startime;//把预测的下一个时间段的可能访问长度给预测出来
-        queryTimeEnd = Clustered_Endtime;//把预测的下一个时间段的可能访问长度给预测出来
-        queryTimeInterval = (long) Clustered_startTimeSum_InetvalTimeSum_EndTimeSum[1];
+        //重叠分析的结果写回到全局变量里面，如果预测结果和聚类结果没有交集，那么就返回一个候选Pair
+        Pair<Long, Long> CandidatelongPair = Overlapanalysis_BetweenClusterAnd(cluster_queryTimeStart, cluster_queryTimeEnd, next_queryTimeStart, next_queryTimeEnd);
 
         try {
             int maxLevel = searchMaxFileLevel();
@@ -158,6 +161,19 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                     break;//这里面包含了核心的执行选择合并任务的逻辑,直到当前层里面有就不去遍历下一层了，
                 }
             }
+            if (CandidatelongPair != null){//两个区间没有交集
+                //再搜索一波文件 提交分析，重新以新的分组再次搜索值得合并的文件
+                queryTimeStart = CandidatelongPair.left;
+                queryTimeEnd = CandidatelongPair.right;
+                queryTimeInterval = queryTimeEnd - queryTimeStart;
+                for (int currentLevel = 0; currentLevel <= maxLevel; currentLevel++) {
+                    if (!selectLevelTask_byYaos_V1(currentLevel, taskPriorityQueue)) {
+                        //如果在一层中找到了至少一批可以合并的文件，那么就终止，不再判断上面其他层级了
+                        //返回的taskPriorityQueue里面会包含一层内的多批次待合并文件资源
+                        break;//这里面包含了核心的执行选择合并任务的逻辑,直到当前层里面有就不去遍历下一层了，
+                    }
+                }
+            }
             while (taskPriorityQueue.size() > 0) { //前面可能遍历得到了好几批，候选文件的集和，这里分别把他们提交成任务
                 LOGGER.info("文件选择器：选择了一批文件，但是并不提交合并任务。选择的文件是： ");//即使选择出来了文件，但是先不进行合并任务提交，先阻塞
                 System.out.println(taskPriorityQueue.poll().left);
@@ -165,6 +181,59 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
             }
         } catch (Exception e) {
             LOGGER.error("Exception occurs while selecting files", e);
+        }
+    }
+
+    /**
+     * 用来计算聚合分析的时间区间 ct1 ~ct2 和预测的时间区间 ft3 ft4的重叠性
+     * 并将分析的结果写入到全局静态变量 queryTimeStart,queryTimeEnd里面
+     * 填充结果写入到全局变量
+     */
+    private Pair<Long, Long> Overlapanalysis_BetweenClusterAnd(long ct1, long ct2, long ft3, long ft4) {
+        long ctInterval = ct2 - ct1;
+        long ftInterval = ft4 - ft3;
+        long candidateQvStart = 0;
+        long candidateQvEnd = 0;
+        if (ft3 > ct2){//无交集，直接返回预测的结果
+            queryTimeStart = ft3;
+            queryTimeEnd  = ft4;
+            queryTimeInterval = queryTimeEnd - queryTimeStart;
+            candidateQvStart = ct1;
+            candidateQvEnd = ct2;
+            return new Pair<Long, Long>(candidateQvStart,candidateQvEnd);
+        }
+
+        if (ft3 >= ct1 && ft3 <= ct2 && ft4 >= ct2){//普通的交集情况
+            queryTimeStart = ct1;
+            queryTimeEnd = ft4;
+            queryTimeInterval = queryTimeEnd - queryTimeStart;
+
+            return null;
+        }
+        if (ft3 >= ct1 && ft3 <= ct2 && ft4 < ct2){//聚合包含预测结果
+            queryTimeStart = ft3;
+            queryTimeEnd  = ct2;
+            queryTimeInterval = queryTimeEnd - queryTimeStart;
+
+            return null;
+        }
+        if (ft3 < ct1 && ft4 < ct2){//预测即将会访问 更老的数据
+            //预测的将来访问的数据范围，如果按照越近的数据越容易被访问那么，ft3通常都是比ct1聚合的结果要大
+            //认为，预测结果可信度较差，直接把聚合结果作为当前频繁访问项
+            queryTimeStart = ft3;
+            queryTimeEnd = ct2;
+            queryTimeInterval = queryTimeEnd - queryTimeStart;
+
+            return null;
+        }else { //没有匹配到任何的区间模式，那么就返回
+            queryTimeStart = ct1;
+            queryTimeEnd = ct2;
+            queryTimeInterval = queryTimeEnd - queryTimeStart;
+            return null;
+
+//            candidateQvStart = ft3;
+//            candidateQvEnd = ft4;
+//            return new Pair<Long, Long>(candidateQvStart,candidateQvEnd);
         }
     }
 
@@ -399,5 +468,3 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
         }
     }
 }
-//  如果你返回一个负数(-ve)，表示前面的对象小于后面的对象。
-//  如果你返回一个正数(+ve)，表示前面的对象大于后面的对象。
