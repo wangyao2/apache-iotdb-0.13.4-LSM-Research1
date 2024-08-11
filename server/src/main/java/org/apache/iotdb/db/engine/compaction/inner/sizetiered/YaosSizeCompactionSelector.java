@@ -106,7 +106,9 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
          */
         double[] Clustered_startTimeSum_InetvalTimeSum_EndTimeSum = new double[3];
         ArrayList<QueryMonitorYaos.FeatureofOneQuery> queryFeaturesMeanShiftList = QueryMonitorYaos.getQueryFeaturesMeanShiftList();
-        System.out.println(queryFeaturesMeanShiftList.get(0));
+        if (!queryFeaturesMeanShiftList.isEmpty()){//用来打印显示一些数据
+            System.out.println(queryFeaturesMeanShiftList.get(0));
+        }
         Clustered_startTimeSum_InetvalTimeSum_EndTimeSum[0] = queryFeaturesMeanShiftList.get(0).getStartTime();
         Clustered_startTimeSum_InetvalTimeSum_EndTimeSum[1] = queryFeaturesMeanShiftList.get(0).getInterval();
         Clustered_startTimeSum_InetvalTimeSum_EndTimeSum[2] = queryFeaturesMeanShiftList.get(0).getEndTime();
