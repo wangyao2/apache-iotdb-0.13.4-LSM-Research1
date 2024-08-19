@@ -158,6 +158,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
             int maxLevel = searchMaxFileLevel();
             for (int currentLevel = 0; currentLevel <= maxLevel; currentLevel++) {
                 if (!selectLevelTask_byYaos_V1(currentLevel, taskPriorityQueue)) {
+                    System.out.println(taskPriorityQueue);
                     //如果在一层中找到了至少一批可以合并的文件，那么就终止，不再判断上面其他层级了
                     //返回的taskPriorityQueue里面会包含一层内的多批次待合并文件资源
                     break;//这里面包含了核心的执行选择合并任务的逻辑,直到当前层里面有就不去遍历下一层了，
@@ -170,6 +171,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                 queryTimeInterval = queryTimeEnd - queryTimeStart;
                 for (int currentLevel = 0; currentLevel <= maxLevel; currentLevel++) {
                     if (!selectLevelTask_byYaos_V1(currentLevel, taskPriorityQueue)) {
+                        System.out.println(taskPriorityQueue);
                         //如果在一层中找到了至少一批可以合并的文件，那么就终止，不再判断上面其他层级了
                         //返回的taskPriorityQueue里面会包含一层内的多批次待合并文件资源
                         break;//这里面包含了核心的执行选择合并任务的逻辑,直到当前层里面有就不去遍历下一层了，
@@ -304,43 +306,82 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
     private boolean selectLevelTask_byYaos_V1(
             int level, PriorityQueue<Pair<List<TsFileResource>, Long>> taskPriorityQueue) //文件选择里面的level仅仅是用来筛选本层的文件
             throws IOException {
+
+        int HDDSeekSpeed = 15;//机械硬盘的寻道时间，单位毫秒，取15ms
+        int ReadHDDSpeed = 50 * 1048576;//机械硬盘的读取速率，单位是50MB/s = 50 * 1,048,576B。
+        double mergeSpeed = 16 * 1048576;//这两个写入 合并 速率参数，暂时还不能确定具体数据在iotdb Config里面，第604行，16MB/s
+
         boolean shouldContinueToSearch = true;
         long selectedFileSize = 0L;
         long targetCompactionFileSize = config.getTargetCompactionFileSize(); // 1GB的字节
 
         ////==========核心逻辑的编码位置=================
         // 现在的文件添加和选择方法是按照顺序选择，我们在这个等号的范围内编写自己的文件选择策略
-        double mergeSpeed = 10;//这两个写入 合并 速率参数，暂时还不能确定具体数据
-        double writeSpeed = 1;//原版本里也没有这个参数
+
         List<long[]> candidateList = new ArrayList<>();//仅仅记录了下标和位置
-        List<TsFileResource> overlappedList = calculateOverlappedList(tsFileResources, level);
+        List<TsFileResource> overlappedList = calculateOverlappedList(tsFileResources, level);//这个函数里面已经使用了外面的全局变量用户期望的查询时间段
+        double golbalIncome = 0.0; //记录全局收益，
         long offsetTime = 0;//overlappedList里面的文件是按照时间先后，新的文件在list的前面 下标号小
-        for (int i = 0; i < overlappedList.size(); i++) { //遍历每一个有交叉的文件，在张lz的算法中，只有一个for循环，没有外层的循环，已经改成对应的单个for循环了
-            TsFileResource tsFileResource = overlappedList.get(i);
-            long mergedTimeInterval = tsFileResource.getTimeIndex().getMaxEndTime() - tsFileResource.getTimeIndex().getMinStartTime();
-            //获取当前文件的时间跨度
-            //这里原本是根据tsfileresource去计算起止时间,tsFileResource的文件大小是long类型的字节，mergeSpeed是MB，默认是16MB每秒
-            long mergeTimeCost = (long) (tsFileResource.getTsFileSize() / mergeSpeed * writeSpeed);//我预计这里应该是用毫秒数，合并耗时，文件大小除以100，注意一下文件大小的单位，long类型，应该是字节数
-            if (queryTimeInterval < (mergedTimeInterval + mergeTimeCost + offsetTime)) {//判断文件的跨度还没有超过查询的特征间隔
-                continue;
-            }
-            offsetTime += mergedTimeInterval;
+        for (int i = 0; i < overlappedList.size(); i++) { //遍历每一个和时间范围有交叉的文件，在张lz的算法中，只有一个for循环，没有外层的循环，已经改成对应的单个for循环了
+            TsFileResource FirsttsFileResource = overlappedList.get(i);
+            long FirstFileEnd = FirsttsFileResource.getTimeIndex().getMaxEndTime();
+            long FirstFileStart = FirsttsFileResource.getTimeIndex().getMinStartTime();//获得一个文件的跨度
+            long FirstFileSize = FirsttsFileResource.getTsFileSize();//读取文件大小
+            double mergeTimeCost = FirstFileSize / mergeSpeed;
+
             for (int j = i + 1; j < overlappedList.size(); j++) { //似乎是遍历i后面的每一个文件
-                TsFileResource endTsFileResource = overlappedList.get(j);
-                mergeTimeCost += endTsFileResource.getTsFileSize() / mergeSpeed * writeSpeed;
-                long allReward = 0L;
-                int maxReward = j - i; //这个应该是对应文件的数量,在两个文件i，j之间有多少个
-                long fullRewardTime = queryTimeInterval - offsetTime - mergedTimeInterval - mergeTimeCost;//可以理解成，有效时间间隔
-                allReward += maxReward * fullRewardTime;
-                if (allReward > 0) {
-                    // calculate not full reward time, from 1 to max_reward, which is active as long as the interval of every file
-                    for (int k = 0; k < maxReward + 1; k++) {
-                        TsFileResource currTsFileResource = overlappedList.get(k);
-                        allReward += currTsFileResource.getTimeIndex().getMaxEndTime() - currTsFileResource.getTimeIndex().getMinStartTime();
-                        //这里原本是根据tsfileresource去计算起止时间
+                TsFileResource NextTsFileResource = overlappedList.get(j);
+                int numIncome = j - i; //这个应该是对应文件的数量,在两个文件i，j节省了多少个文件，节省了几次寻道次数
+
+                long NextFileSize = NextTsFileResource.getTsFileSize();//读取文件大小
+                mergeTimeCost = mergeTimeCost + NextFileSize / mergeSpeed;//把后续文件合并需要的时间都累加进来
+
+                double deviaQueryTimeStart = queryTimeStart + mergeTimeCost;//合并完成后，查询时间偏移
+                double deviaQueryEndStart = queryTimeEnd + mergeTimeCost;//合并完成后，查询时间偏移
+
+                double amplifyPersent = 0;//记录一个放大比例，理论上来说，只能是一个在[0,1]之间的数
+                boolean isAmplifyPersent = true;//读放大标志位
+
+                ArrayList<Integer> Ampindex = new ArrayList<>();
+                //while (isAmplifyPersent){//判断写放大文件是否应该参与一次合并执行
+                for (int ii = i; ii < j; ii++){//遍历选中的这批文件
+                    TsFileResource AmPJudgetsFileResource = overlappedList.get(ii);
+                    double fileTimeRangeGap = deviaQueryTimeStart - AmPJudgetsFileResource.getTimeIndex().getMinStartTime();//文件的时间
+                    if (fileTimeRangeGap > 0){
+                        Ampindex.add(ii);
+                    }else {
+                        break;
                     }
                 }
-                candidateList.add(new long[]{i, j, allReward}); //这里似乎是以下标的方式，记录两两文件的互相之间，reward
+                //}
+                //如果写放大文件小于一定的阈值，我们就认为可以接受
+                double fileTimeRangeGap = deviaQueryTimeStart - FirstFileStart;//文件的时间
+                if (fileTimeRangeGap < 0) {//为负数，那么就是文件在查询范围内，没有读放大的文件了，跳出循环
+                    break;
+                }
+                //存在读放大文件
+                amplifyPersent = fileTimeRangeGap / (FirstFileEnd - FirstFileStart);
+                if (amplifyPersent < 1){//还有更多读放大文件
+
+                }
+                if (FirstFileStart < deviaQueryTimeStart){//第一个文件可能会导致读放大的
+
+                }
+                //用时间的跨度去估算读放大的比例
+                double fileTimeRangeGap = deviaQueryTimeStart - FirstFileStart;//文件的时间
+                amplifyPersent = fileTimeRangeGap / (FirstFileEnd - FirstFileStart);
+                if (amplifyPersent > 1){//说明合并耗时过后，第一个文件已经完全是读放大的状态，再继续判断后面的文件
+                    FirsttsFileResource = overlappedList.get(i+1);//不会发生越界的情况，因为出现文件读放大都会在候选文件的前半段，
+
+                }
+                if (NextTsFileResource.getTimeIndex().getMinStartTime() < deviaQueryTimeStart){//第一个文件可能会导致读放大的
+
+                }
+                double currentIncome = 0L;//记录当前环和批次的收益
+                double SavedTime = numIncome * HDDSeekSpeed - FirstFileSize * amplifyPersent / ReadHDDSpeed;//第一项是节省的寻道时间,第二项是读放大带来的负收益
+
+                currentIncome = currentIncome +  SavedTime;//累积从i到j的合并开销和收益权衡
+                candidateList.add(new long[]{i, j, (long) currentIncome}); //这里似乎是以下标的方式，记录两两文件的互相之间，reward
             }
         }
         // get the tuple with max reward among candidate list
@@ -394,11 +435,11 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
 
     private List<TsFileResource> calculateOverlappedList(List<TsFileResource> tsFileResources, int level) throws IOException {
         //从zhanglingzhe0.12版本复现至此，计算重叠度
-        //后来分析发现，这个不是计算重叠度的，而是判断候选文件列表里，有没有
+        //后来分析发现，这个不是计算重叠度的，而是判断候选文件列表里，有没有和目标时间范围重叠的文件
         List<TsFileResource> overlappedList = new ArrayList<>();
         long time = 0;
         ITimeIndex timeIndex;
-        int templevel = 0;//现在编程设计过程中，考虑到level可能得数值为0,因为只有0层的数据才会被频繁查询到
+        int templevel = 0;//现在编程设计过程中，考虑到level可能得数值为0,因为只考虑0层的数据才会被频繁查询到
         for (int i = tsFileResources.size() - 1; i >= 0; i--) {//这里是直接获取最新的文件
             //遍历每一个资源文件，看下标的开始索引，是从最后一个开始遍历，默认情况下是先遍历距离当前时间最新的文件
             TsFileResource tsFileResource = tsFileResources.get(i);
@@ -415,14 +456,6 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                 long maxEndTime = timeIndex.getMaxEndTime();//暂时仅仅以全局的时间去判断，还没精确到具体的一个设备上
                 long minStartTime = timeIndex.getMinStartTime();
                 if (maxEndTime > queryTimeStart) {
-                    /*
-                    (1)对于π0只要末尾大于特征起始，就包括进来
-                    文件的结束时间在特征的起始时间之后，就给纳入进来
-                    因为对于查询过去段时间到现在 current 的 范围查询内，只要大于 特征间隔的就都要
-                    对于文件的起始时间大于 current的那些不在范围内的文件还不存在，这一个需要再πn的时候再去考虑；
-                    (2)对于πn，需要考虑新生成的文件，和特征区间的包含关系
-
-                    */
                     overlappedList.add(tsFileResource);
                     time += maxEndTime - minStartTime;//感觉这个得放里面，对应一个文件的时间跨度，对于顺序空间来说，每个文件之间是没有重叠的
                     //直接这么加的话，那么应该考虑文件之间在时间上没有重叠，而且连续两个文件在时间戳上是连续的，而不是像我现在，每一个文件内只是一天的段时间
