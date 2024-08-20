@@ -20,6 +20,8 @@ import java.util.regex.Pattern;
 public class CalculateTime_Utils {
 
     public static void main(String[] args) throws ParseException {
+        System.out.println("7天时间" + DateToLongTimestamp("2024-02-06 04:19:13"));
+
         System.out.println("开始时间：");
         System.out.println(LongToData(1706729390400L, false));
         System.out.println(LongToData(1706742480000L, false));

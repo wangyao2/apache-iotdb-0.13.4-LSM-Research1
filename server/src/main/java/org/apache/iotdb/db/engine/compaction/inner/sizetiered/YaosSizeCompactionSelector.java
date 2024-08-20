@@ -108,11 +108,10 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
         ArrayList<QueryMonitorYaos.FeatureofOneQuery> queryFeaturesMeanShiftList = QueryMonitorYaos.getQueryFeaturesMeanShiftList();
         if (!queryFeaturesMeanShiftList.isEmpty()){//用来打印显示一些数据
             System.out.println(queryFeaturesMeanShiftList.get(0));
+            Clustered_startTimeSum_InetvalTimeSum_EndTimeSum[0] = queryFeaturesMeanShiftList.get(0).getStartTime();
+            Clustered_startTimeSum_InetvalTimeSum_EndTimeSum[1] = queryFeaturesMeanShiftList.get(0).getInterval();
+            Clustered_startTimeSum_InetvalTimeSum_EndTimeSum[2] = queryFeaturesMeanShiftList.get(0).getEndTime();
         }
-        Clustered_startTimeSum_InetvalTimeSum_EndTimeSum[0] = queryFeaturesMeanShiftList.get(0).getStartTime();
-        Clustered_startTimeSum_InetvalTimeSum_EndTimeSum[1] = queryFeaturesMeanShiftList.get(0).getInterval();
-        Clustered_startTimeSum_InetvalTimeSum_EndTimeSum[2] = queryFeaturesMeanShiftList.get(0).getEndTime();
-
         long predited_Startime = 0;
         long predited_Endtime = 0;
         long Clustered_Startime = 0;
@@ -151,20 +150,24 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
         long next_queryTimeEnd = predited_Endtime * 1000 + 1706700000000L;//把预测的下一个时间段的可能访问长度给预测出来
         long next_queryTimeInterval = (long) Clustered_startTimeSum_InetvalTimeSum_EndTimeSum[1];
 
-        //重叠分析的结果写回到全局变量里面，如果预测结果和聚类结果没有交集，那么就返回一个候选Pair
+        //计算最终的查询起始、末尾和间隔重叠分析的结果写回到全局变量里面，如果预测结果和聚类结果没有交集，那么就返回一个候选Pair
         Pair<Long, Long> CandidatelongPair = Overlapanalysis_BetweenClusterAnd(cluster_queryTimeStart, cluster_queryTimeEnd, next_queryTimeStart, next_queryTimeEnd);
 
         try {
             int maxLevel = searchMaxFileLevel();
+            //临时手动设置queryTimeStart和queryTimeEnd，方便调试合并收益的计算流程
+            queryTimeStart = 1706817638000L;//临时放置
+            queryTimeEnd = 1707164353000L;//临时放置
+            queryTimeInterval = queryTimeEnd - queryTimeStart;
             for (int currentLevel = 0; currentLevel <= maxLevel; currentLevel++) {
                 if (!selectLevelTask_byYaos_V1(currentLevel, taskPriorityQueue)) {
-                    System.out.println(taskPriorityQueue);
+                    System.out.println("选中的文件数量为：" + taskPriorityQueue.size());
                     //如果在一层中找到了至少一批可以合并的文件，那么就终止，不再判断上面其他层级了
                     //返回的taskPriorityQueue里面会包含一层内的多批次待合并文件资源
                     break;//这里面包含了核心的执行选择合并任务的逻辑,直到当前层里面有就不去遍历下一层了，
                 }
             }
-            if (CandidatelongPair != null){//两个区间没有交集
+            if (CandidatelongPair != null && (CandidatelongPair.left !=0 && CandidatelongPair.right !=0)){//两个区间没有交集
                 //再搜索一波文件 提交分析，重新以新的分组再次搜索值得合并的文件
                 queryTimeStart = CandidatelongPair.left;
                 queryTimeEnd = CandidatelongPair.right;
@@ -179,7 +182,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                 }
             }
             while (taskPriorityQueue.size() > 0) { //前面可能遍历得到了好几批，候选文件的集和，这里分别把他们提交成任务
-                LOGGER.info("文件选择器：选择了一批文件，但是并不提交合并任务。选择的文件是： ");//即使选择出来了文件，但是先不进行合并任务提交，先阻塞
+                LOGGER.info("文件选择器：选择了一批文件，但是被手动设置为并不提交合并任务。选择的文件是： ");//即使选择出来了文件，但是先不进行合并任务提交，先阻塞
                 System.out.println(taskPriorityQueue.poll().left);
                 //createAndSubmitTask(taskPriorityQueue.poll().left); //如果有待合并的文件，那么就就提交这个任务
             }
@@ -321,13 +324,14 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
         List<long[]> candidateList = new ArrayList<>();//仅仅记录了下标和位置
         List<TsFileResource> overlappedList = calculateOverlappedList(tsFileResources, level);//这个函数里面已经使用了外面的全局变量用户期望的查询时间段
         double golbalIncome = 0.0; //记录全局收益，
-        long offsetTime = 0;//overlappedList里面的文件是按照时间先后，新的文件在list的前面 下标号小
+        long offsetTime = 0;//overlappedList里面的文件是按照时间先后，新的文件在list的前面 下标号小，新的文件在List的头部
+        //Collections.reverse(overlappedList);//调整文件的顺序，使得旧的文件在overlaplist的前面
         for (int i = 0; i < overlappedList.size(); i++) { //遍历每一个和时间范围有交叉的文件，在张lz的算法中，只有一个for循环，没有外层的循环，已经改成对应的单个for循环了
             TsFileResource FirsttsFileResource = overlappedList.get(i);
             long FirstFileEnd = FirsttsFileResource.getTimeIndex().getMaxEndTime();
             long FirstFileStart = FirsttsFileResource.getTimeIndex().getMinStartTime();//获得一个文件的跨度
             long FirstFileSize = FirsttsFileResource.getTsFileSize();//读取文件大小
-            double mergeTimeCost = FirstFileSize / mergeSpeed;
+            double mergeTimeCost = FirstFileSize / mergeSpeed;//仅用来计算合并偏移
 
             for (int j = i + 1; j < overlappedList.size(); j++) { //似乎是遍历i后面的每一个文件
                 TsFileResource NextTsFileResource = overlappedList.get(j);
@@ -340,47 +344,41 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                 double deviaQueryEndStart = queryTimeEnd + mergeTimeCost;//合并完成后，查询时间偏移
 
                 double amplifyPersent = 0;//记录一个放大比例，理论上来说，只能是一个在[0,1]之间的数
-                boolean isAmplifyPersent = true;//读放大标志位
+                double amplifyFileSize = 0;
+                double SUMamplifyPersent = 0;//记录一个放大比例，理论上来说，只能是一个在[0,1]之间的数
 
                 ArrayList<Integer> Ampindex = new ArrayList<>();
+                ArrayList<Double> AmpindexPercent = new ArrayList<>();
                 //while (isAmplifyPersent){//判断写放大文件是否应该参与一次合并执行
-                for (int ii = i; ii < j; ii++){//遍历选中的这批文件
+                //todo 新的文件编号小，明天优化测试这一部分
+                for (int ii = i; ii < j; ii++){
+                    //遍历选中的这批文件范围，判断有读放大的是哪些，通常只有前几个（时间戳小的）文件涉及读放大问题
+                    //但是，获取的列表中，越新的文件，越排在list的前面
                     TsFileResource AmPJudgetsFileResource = overlappedList.get(ii);
-                    double fileTimeRangeGap = deviaQueryTimeStart - AmPJudgetsFileResource.getTimeIndex().getMinStartTime();//文件的时间
-                    if (fileTimeRangeGap > 0){
-                        Ampindex.add(ii);
+                    long minStartTime = AmPJudgetsFileResource.getTimeIndex().getMinStartTime();
+                    double fileTimeRangeGap = deviaQueryTimeStart - minStartTime;//文件的时间
+
+                    if (fileTimeRangeGap > 0){//计算重叠大小
+                        long maxEndTime = AmPJudgetsFileResource.getTimeIndex().getMaxEndTime();
+                        amplifyPersent = fileTimeRangeGap / (maxEndTime - minStartTime);
+                        amplifyFileSize = amplifyFileSize + amplifyPersent * AmPJudgetsFileResource.getTsFileSize();
+                        SUMamplifyPersent += amplifyPersent;
+//                        Ampindex.add(ii);
+//                        AmpindexPercent.add(amplifyPersent);
                     }else {
                         break;
                     }
                 }
-                //}
-                //如果写放大文件小于一定的阈值，我们就认为可以接受
-                double fileTimeRangeGap = deviaQueryTimeStart - FirstFileStart;//文件的时间
-                if (fileTimeRangeGap < 0) {//为负数，那么就是文件在查询范围内，没有读放大的文件了，跳出循环
-                    break;
-                }
-                //存在读放大文件
-                amplifyPersent = fileTimeRangeGap / (FirstFileEnd - FirstFileStart);
-                if (amplifyPersent < 1){//还有更多读放大文件
+                double SavedTime;
 
+                if (SUMamplifyPersent >= 0){//如果两个以上文件有重叠
+                    SavedTime = numIncome * HDDSeekSpeed - amplifyFileSize / ReadHDDSpeed;//第一项是节省的寻道时间,第二项是读放大带来的负收益
+                }else {
+                    SavedTime = numIncome * HDDSeekSpeed;//第一项是节省的寻道时间,第二项是读放大带来的负收益
                 }
-                if (FirstFileStart < deviaQueryTimeStart){//第一个文件可能会导致读放大的
 
-                }
-                //用时间的跨度去估算读放大的比例
-                double fileTimeRangeGap = deviaQueryTimeStart - FirstFileStart;//文件的时间
-                amplifyPersent = fileTimeRangeGap / (FirstFileEnd - FirstFileStart);
-                if (amplifyPersent > 1){//说明合并耗时过后，第一个文件已经完全是读放大的状态，再继续判断后面的文件
-                    FirsttsFileResource = overlappedList.get(i+1);//不会发生越界的情况，因为出现文件读放大都会在候选文件的前半段，
-
-                }
-                if (NextTsFileResource.getTimeIndex().getMinStartTime() < deviaQueryTimeStart){//第一个文件可能会导致读放大的
-
-                }
                 double currentIncome = 0L;//记录当前环和批次的收益
-                double SavedTime = numIncome * HDDSeekSpeed - FirstFileSize * amplifyPersent / ReadHDDSpeed;//第一项是节省的寻道时间,第二项是读放大带来的负收益
-
-                currentIncome = currentIncome +  SavedTime;//累积从i到j的合并开销和收益权衡
+                currentIncome = currentIncome + SavedTime;//累积从i到j的合并开销和收益权衡
                 candidateList.add(new long[]{i, j, (long) currentIncome}); //这里似乎是以下标的方式，记录两两文件的互相之间，reward
             }
         }
@@ -440,7 +438,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
         long time = 0;
         ITimeIndex timeIndex;
         int templevel = 0;//现在编程设计过程中，考虑到level可能得数值为0,因为只考虑0层的数据才会被频繁查询到
-        for (int i = tsFileResources.size() - 1; i >= 0; i--) {//这里是直接获取最新的文件
+        for (int i = 0; i < tsFileResources.size(); i++) {//顺序获取待合并的资源文件
             //遍历每一个资源文件，看下标的开始索引，是从最后一个开始遍历，默认情况下是先遍历距离当前时间最新的文件
             TsFileResource tsFileResource = tsFileResources.get(i);
             TsFileNameGenerator.TsFileName currentName = //把文件名进行解析成时间戳-版本-合并次数-跨空间次数的格式，判断是否处于当前层级
@@ -455,11 +453,15 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                 timeIndex = tsFileResource.getTimeIndex();//这里面记录了文件内每一个序列的起止时间戳
                 long maxEndTime = timeIndex.getMaxEndTime();//暂时仅仅以全局的时间去判断，还没精确到具体的一个设备上
                 long minStartTime = timeIndex.getMinStartTime();
+                if(minStartTime > queryTimeEnd){
+                    break;
+                }
                 if (maxEndTime > queryTimeStart) {
                     overlappedList.add(tsFileResource);
                     time += maxEndTime - minStartTime;//感觉这个得放里面，对应一个文件的时间跨度，对于顺序空间来说，每个文件之间是没有重叠的
                     //直接这么加的话，那么应该考虑文件之间在时间上没有重叠，而且连续两个文件在时间戳上是连续的，而不是像我现在，每一个文件内只是一天的段时间
                 }
+
                 if (time > queryTimeInterval) {//感觉这里应该是计算设备的时间跨度，我们把时间跨度设置成了7天的间隔；我生成了7个文件，但是这7个文件的真是时间间隔可能并不能超过设定的查询阈值大小
                     break;//这里的判断条件还有待考证，如果每一个文件跨越的时间范围都比较小，累加起来，不会超过一个查询间隔的
                 }
