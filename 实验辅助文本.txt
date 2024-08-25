@@ -1,0 +1,37 @@
+调试用的实验数据集
+文件1
+device root.CPT2.g0.d3, start time 1706716807873 (2024-02-01T00:00:07.873+08:00[Asia/Shanghai]), end time 1706746744456 (2024-02-01T08:19:04.456+08:00[Asia/Shanghai])
+device root.CPT2.g0.d2, start time 1706716801098 (2024-02-01T00:00:01.098+08:00[Asia/Shanghai]), end time 1706746787014 (2024-02-01T08:19:47.014+08:00[Asia/Shanghai])
+device root.CPT2.g0.d1, start time 1706716847038 (2024-02-01T00:00:47.038+08:00[Asia/Shanghai]), end time 1706746783994 (2024-02-01T08:19:43.994+08:00[Asia/Shanghai])
+device root.CPT2.g0.d0, start time 1706716831112 (2024-02-01T00:00:31.112+08:00[Asia/Shanghai]), end time 1706746749207 (2024-02-01T08:19:09.207+08:00[Asia/Shanghai])
+文件2
+device root.CPT2.g0.d3, start time 1706803215193 (2024-02-02T00:00:15.193+08:00[Asia/Shanghai]), end time 1706833166678 (2024-02-02T08:19:26.678+08:00[Asia/Shanghai])
+device root.CPT2.g0.d2, start time 1706803244232 (2024-02-02T00:00:44.232+08:00[Asia/Shanghai]), end time 1706833188464 (2024-02-02T08:19:48.464+08:00[Asia/Shanghai])
+device root.CPT2.g0.d1, start time 1706803238981 (2024-02-02T00:00:38.981+08:00[Asia/Shanghai]), end time 1706833150483 (2024-02-02T08:19:10.483+08:00[Asia/Shanghai])
+device root.CPT2.g0.d0, start time 1706803214837 (2024-02-02T00:00:14.837+08:00[Asia/Shanghai]), end time 1706833164070 (2024-02-02T08:19:24.070+08:00[Asia/Shanghai])
+文件3
+device root.CPT2.g0.d3, start time 1706889622598 (2024-02-03T00:00:22.598+08:00[Asia/Shanghai]), end time 1706919583924 (2024-02-03T08:19:43.924+08:00[Asia/Shanghai])
+device root.CPT2.g0.d2, start time 1706889629747 (2024-02-03T00:00:29.747+08:00[Asia/Shanghai]), end time 1706919599959 (2024-02-03T08:19:59.959+08:00[Asia/Shanghai])
+device root.CPT2.g0.d1, start time 1706889656579 (2024-02-03T00:00:56.579+08:00[Asia/Shanghai]), end time 1706919557334 (2024-02-03T08:19:17.334+08:00[Asia/Shanghai])
+device root.CPT2.g0.d0, start time 1706889617163 (2024-02-03T00:00:17.163+08:00[Asia/Shanghai]), end time 1706919558312 (2024-02-03T08:19:18.312+08:00[Asia/Shanghai])
+文件4
+device root.CPT2.g0.d3, start time 1706976011022 (2024-02-04T00:00:11.022+08:00[Asia/Shanghai]), end time 1707005941945 (2024-02-04T08:19:01.945+08:00[Asia/Shanghai])
+device root.CPT2.g0.d2, start time 1706976029020 (2024-02-04T00:00:29.020+08:00[Asia/Shanghai]), end time 1707005993119 (2024-02-04T08:19:53.119+08:00[Asia/Shanghai])
+device root.CPT2.g0.d1, start time 1706976035715 (2024-02-04T00:00:35.715+08:00[Asia/Shanghai]), end time 1707005978781 (2024-02-04T08:19:38.781+08:00[Asia/Shanghai])
+device root.CPT2.g0.d0, start time 1706976021876 (2024-02-04T00:00:21.876+08:00[Asia/Shanghai]), end time 1707005953281 (2024-02-04T08:19:13.281+08:00[Asia/Shanghai])
+文件5
+device root.CPT2.g0.d3, start time 1707062411367 (2024-02-05T00:00:11.367+08:00[Asia/Shanghai]), end time 1707092340893 (2024-02-05T08:19:00.893+08:00[Asia/Shanghai])
+device root.CPT2.g0.d2, start time 1707062449784 (2024-02-05T00:00:49.784+08:00[Asia/Shanghai]), end time 1707092389357 (2024-02-05T08:19:49.357+08:00[Asia/Shanghai])
+device root.CPT2.g0.d1, start time 1707062459585 (2024-02-05T00:00:59.585+08:00[Asia/Shanghai]), end time 1707092358729 (2024-02-05T08:19:18.729+08:00[Asia/Shanghai])
+device root.CPT2.g0.d0, start time 1707062405689 (2024-02-05T00:00:05.689+08:00[Asia/Shanghai]), end time 1707092375805 (2024-02-05T08:19:35.805+08:00[Asia/Shanghai])
+文件6
+device root.CPT2.g0.d3, start time 1707148806591 (2024-02-06T00:00:06.591+08:00[Asia/Shanghai]), end time 1707178749039 (2024-02-06T08:19:09.039+08:00[Asia/Shanghai])
+device root.CPT2.g0.d2, start time 1707148811934 (2024-02-06T00:00:11.934+08:00[Asia/Shanghai]), end time 1707178753380 (2024-02-06T08:19:13.380+08:00[Asia/Shanghai])
+device root.CPT2.g0.d1, start time 1707148858667 (2024-02-06T00:00:58.667+08:00[Asia/Shanghai]), end time 1707178796238 (2024-02-06T08:19:56.238+08:00[Asia/Shanghai])
+device root.CPT2.g0.d0, start time 1707148819201 (2024-02-06T00:00:19.201+08:00[Asia/Shanghai]), end time 1707178740466 (2024-02-06T08:19:00.466+08:00[Asia/Shanghai])
+文件7
+device root.CPT2.g0.d3, start time 1707235243823 (2024-02-07T00:00:43.823+08:00[Asia/Shanghai]), end time 1707265174028 (2024-02-07T08:19:34.028+08:00[Asia/Shanghai])
+device root.CPT2.g0.d2, start time 1707235218623 (2024-02-07T00:00:18.623+08:00[Asia/Shanghai]), end time 1707265198744 (2024-02-07T08:19:58.744+08:00[Asia/Shanghai])
+device root.CPT2.g0.d1, start time 1707235244992 (2024-02-07T00:00:44.992+08:00[Asia/Shanghai]), end time 1707265191917 (2024-02-07T08:19:51.917+08:00[Asia/Shanghai])
+device root.CPT2.g0.d0, start time 1707235230411 (2024-02-07T00:00:30.411+08:00[Asia/Shanghai]), end time 1707265163458 (2024-02-07T08:19:23.458+08:00[Asia/Shanghai])
+

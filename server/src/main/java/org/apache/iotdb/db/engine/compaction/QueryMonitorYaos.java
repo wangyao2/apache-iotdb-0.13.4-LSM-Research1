@@ -40,7 +40,7 @@ public class QueryMonitorYaos {
     private static ArrayList<FeatureofGroupQuery> QueryFeaturesGloablList = new ArrayList<>();//记录一批查询结果的几个特征
 
     private static ArrayList<FeatureofOneQuery> QueryFeaturesMeanShiftList = new ArrayList<>();//用于对比实验的MeanShift的特征统计，还有质心法的特征统计
-
+    private static int GROUP_SIZE = 15;//一个分段内收集查询数量的多少
     //private static ArrayList<Long> QueryInterval = new ArrayList<>();//记录每一个范围查询的查询间隔
     //private static ArrayList<Long> QueryStartTime = new ArrayList<>();//记录每一个范围查询的查询开始时间
 
@@ -59,8 +59,10 @@ public class QueryMonitorYaos {
     public void addAquery(QueryPlan queryPlan, QueryContext context) {
         //每次执行查询时，都把查询涉及到的设备和时间范围捕获过来，拿到
         //LOGGER.debug("接收到查询请求！ - {}", queryPlan);
-        QueryQRList.add(queryPlan);
-        ContextCTList.add(context);//暂时使用不到；现在启用，用来收集查询的开始时间
+        if(queryPlan != null && context != null){//确保两个都不为空对象，才执行插入
+            QueryQRList.add(queryPlan);
+            ContextCTList.add(context);//暂时使用不到；现在启用，用来收集查询的开始时间
+        }
 //        analyzeTheQueryFeature();//暂时先放在这里，后面要移动到合并查询之前，进行查询样式的分析
 //        analyzeTheGolableFeatures();
     }
@@ -72,7 +74,7 @@ public class QueryMonitorYaos {
     public void analyzeTheQueryFeature() {
         LOGGER.info("查询监视器：尝试提取序列的查询特征...");
 
-        if (QueryQRList.size() < 20) {
+        if (QueryQRList.size() < 50) {
             LOGGER.info("查询监视器：没有足够需要被分析的数据,或者搜集的查询数量过少！");
             return;
         }
@@ -149,6 +151,7 @@ public class QueryMonitorYaos {
 //                return Long.compare(o1.getStartTime(), o2.getStartTime());
 //            }
 //        });
+        GROUP_SIZE_Dynamic();
         ConvertTheQueryListToSegmentFeatures();//使用分析方法，把收到的查询负载解析成很多特征和标签样式
         //analyzeTheGolableFeatures_UsingMeanShift();//使用方法分析，收集负载的特征，把负载解析成几个类型的特征，存储到QueryFeaturesGloablList内
         analyzeTheGolableFeatures_UsingNormalCentroid();
@@ -158,6 +161,16 @@ public class QueryMonitorYaos {
         ContextCTList.clear();
 
         System.out.println("Query Monitor has finished the Spilt Query List !");
+    }
+
+    /**
+     * 用来根据查询负载的数量去动态生成分组大小，然后再按照分组大小去
+     * 在这个方法内，我们会调整GROUP_SIZE的大小，并不返回变量，但是
+     */
+    private void GROUP_SIZE_Dynamic() {
+        int lastGroupSize = GROUP_SIZE;//先记录下来上一个组选用的多少
+
+        GROUP_SIZE = 10;
     }
 
     /**
@@ -173,7 +186,7 @@ public class QueryMonitorYaos {
             Long endTimeConxtex = EndContext.getStartTime();//收集到了一批查询负载，看看这一批查询最早是什么时候到达的
         }
 
-        final int groupSize = 10;
+        final int groupSize = GROUP_SIZE;//分组大小设定
         int count = 1;
         for (int i = 0; i < QueryFeaturesList.size(); i += groupSize) {
             // 获取当前组的子列表
@@ -396,6 +409,7 @@ public class QueryMonitorYaos {
         QueryFeaturesList.clear();
         QueryQRList.clear();
         ContextCTList.clear();
+        QueryFeaturesGloablList.clear();
     }
 
     /**
@@ -422,6 +436,9 @@ public class QueryMonitorYaos {
             for (int i = 0; i < QueryFeaturesList.size(); i++) {
                 feature = QueryFeaturesList.get(i);
                 context = ContextCTList.get(i);
+                if (context == null || feature == null){//排除某些情况下，收集到的的两个查询负载不匹配的情况
+                    continue;
+                }
                 // 写入每个元素的toString()返回值，并在末尾添加换行符
                 String oneLine = feature.startTime + "," + feature.interval + "," + feature.endTime + "," +context.getStartTime();
                 writer.write(oneLine + System.lineSeparator());
@@ -433,7 +450,7 @@ public class QueryMonitorYaos {
 
         try (FileWriter writer = new FileWriter("F:\\Workspcae\\IdeaWorkSpace\\IotDBMaster2\\apache-iotdb-0.13.4-LSM-Research1\\outputCsv\\b.csv")) {
             writer.write("groupNum,startTime_mean,startTime_Vari,endtime_mean,endtime_Vari,startQuery_mean,startQuery_vari" + System.lineSeparator());
-            final int groupSize = 10;
+            final int groupSize = GROUP_SIZE;//这个分组大小要和前面设定分组抑一直才可以
             int count = 1;
             for (int i = 0; i < QueryFeaturesList.size(); i += groupSize) {
                 // 获取当前组的子列表

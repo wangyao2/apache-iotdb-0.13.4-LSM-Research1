@@ -33,11 +33,11 @@ import org.apache.iotdb.db.engine.storagegroup.TsFileResource;
 import org.apache.iotdb.db.engine.storagegroup.TsFileResourceStatus;
 import org.apache.iotdb.db.engine.storagegroup.timeindex.ITimeIndex;
 import org.apache.iotdb.tsfile.utils.Pair;
-import org.apache.iotdb.db.engine.compaction.MLQueryAnalyzerYaos;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.text.SimpleDateFormat;
 import java.util.*;
 
 /**
@@ -60,6 +60,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
     private static final Logger LOGGER =
             LoggerFactory.getLogger(IoTDBConstant.COMPACTION_LOGGER_NAME);
     private static IoTDBConfig config = IoTDBDescriptor.getInstance().getConfig();
+    SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");;
 
     private long queryTimeStart= 1706716805000L;//2024-02-01 00:00:05 的 long类型时间戳
     private long queryTimeEnd= 1706716805000L;//2024-02-01 00:00:05 的 long类型时间戳
@@ -135,6 +136,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                 Clustered_Endtime = (long) Clustered_startTimeSum_InetvalTimeSum_EndTimeSum[2];//获得预测的下一个时间段，哪些数据可能被访问到
             } catch (Exception e) {
                 e.printStackTrace();
+                monitorYaos.clearFeatures();
                 throw new RuntimeException(e);
             }
         }else {
@@ -145,49 +147,74 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
         long cluster_queryTimeStart = Clustered_Startime;//把预测的下一个时间段的可能访问长度给预测出来
         long cluster_queryTimeEnd = Clustered_Endtime;//把预测的下一个时间段的可能访问长度给预测出来
         long cluster_queryTimeInterval = cluster_queryTimeEnd - cluster_queryTimeStart;
+        System.out.println("聚类分析的近期时间范围：");
+        System.out.println(dateFormat.format(new Date((long) cluster_queryTimeStart)));
+        System.out.println(dateFormat.format(new Date((long) cluster_queryTimeEnd)));
 
         long next_queryTimeStart = predited_Startime * 1000 + 1706700000000L;//把预测的下一个时间段的可能访问长度给预测出来
         long next_queryTimeEnd = predited_Endtime * 1000 + 1706700000000L;//把预测的下一个时间段的可能访问长度给预测出来
         long next_queryTimeInterval = (long) Clustered_startTimeSum_InetvalTimeSum_EndTimeSum[1];
-
+        System.out.println("预测分析的用于期望范围：");
+        System.out.println(dateFormat.format(new Date((long) next_queryTimeStart)));
+        System.out.println(dateFormat.format(new Date((long) next_queryTimeEnd)));
         //计算最终的查询起始、末尾和间隔重叠分析的结果写回到全局变量里面，如果预测结果和聚类结果没有交集，那么就返回一个候选Pair
         Pair<Long, Long> CandidatelongPair = Overlapanalysis_BetweenClusterAnd(cluster_queryTimeStart, cluster_queryTimeEnd, next_queryTimeStart, next_queryTimeEnd);
 
-        try {
-            int maxLevel = searchMaxFileLevel();
-            //临时手动设置queryTimeStart和queryTimeEnd，方便调试合并收益的计算流程
-            queryTimeStart = 1706817638000L;//临时放置
-            queryTimeEnd = 1707164353000L;//临时放置
-            queryTimeInterval = queryTimeEnd - queryTimeStart;
-            for (int currentLevel = 0; currentLevel <= maxLevel; currentLevel++) {
-                if (!selectLevelTask_byYaos_V1(currentLevel, taskPriorityQueue)) {
-                    System.out.println("选中的文件数量为：" + taskPriorityQueue.size());
-                    //如果在一层中找到了至少一批可以合并的文件，那么就终止，不再判断上面其他层级了
-                    //返回的taskPriorityQueue里面会包含一层内的多批次待合并文件资源
-                    break;//这里面包含了核心的执行选择合并任务的逻辑,直到当前层里面有就不去遍历下一层了，
+        if(next_queryTimeStart == 1706700000000L || next_queryTimeEnd == 1706700000000L){//没有足够的查询负载，就按照原始旧方法去执行合并
+            try {
+                LOGGER.info("文件选择器：ML执行器没有运行，按照旧模式执行文件合并");//即使选择出来了文件，但是先不进行合并任务提交，先阻塞
+                int maxLevel = searchMaxFileLevel();
+                for (int currentLevel = 0; currentLevel <= maxLevel; currentLevel++) {
+                    if (!selectLevelTask(currentLevel, taskPriorityQueue)) { //如果在一层中找到了一批可以合并的文件，那么就终止，不再判断其他层级了
+                        break; //这里面包含了核心的执行选择合并任务的逻辑
+                    }
                 }
+                while (taskPriorityQueue.size() > 0) {
+                    LOGGER.info("旧文件选择器：按照旧文件选择待合并文件选择了一批文件，但是被手动设置为并不提交合并任务。选择的文件是： ");//即使选择出来了文件，但是先不进行合并任务提交，先阻塞
+                    break;//用来避免死循环，记得把这里删掉，在正常运行时
+                    //System.out.println(taskPriorityQueue.poll().left);
+                    //createAndSubmitTask(taskPriorityQueue.poll().left); //如果有待合并的文件，那么就就提交这个任务
+                }
+            } catch (Exception e) {
+                LOGGER.error("Exception occurs while selecting files", e);
             }
-            if (CandidatelongPair != null && (CandidatelongPair.left !=0 && CandidatelongPair.right !=0)){//两个区间没有交集
-                //再搜索一波文件 提交分析，重新以新的分组再次搜索值得合并的文件
-                queryTimeStart = CandidatelongPair.left;
-                queryTimeEnd = CandidatelongPair.right;
-                queryTimeInterval = queryTimeEnd - queryTimeStart;
+        }else {//如果收集到了足够的查询负载，那么旧按照
+            try {
+                int maxLevel = searchMaxFileLevel();
+                //临时手动设置queryTimeStart和queryTimeEnd，方便调试合并收益的计算流程
+//            queryTimeStart = 1706817638000L;//临时放置
+//            queryTimeEnd = 1707164353000L;//临时放置
+//            queryTimeInterval = queryTimeEnd - queryTimeStart;
                 for (int currentLevel = 0; currentLevel <= maxLevel; currentLevel++) {
                     if (!selectLevelTask_byYaos_V1(currentLevel, taskPriorityQueue)) {
-                        System.out.println(taskPriorityQueue);
+                        System.out.println("选中的文件数量为：" + taskPriorityQueue.size());
                         //如果在一层中找到了至少一批可以合并的文件，那么就终止，不再判断上面其他层级了
                         //返回的taskPriorityQueue里面会包含一层内的多批次待合并文件资源
                         break;//这里面包含了核心的执行选择合并任务的逻辑,直到当前层里面有就不去遍历下一层了，
                     }
                 }
+                if (CandidatelongPair != null && (CandidatelongPair.left !=0 && CandidatelongPair.right !=0)){//两个区间没有交集
+                    //再搜索一波文件 提交分析，重新以新的分组再次搜索值得合并的文件
+                    queryTimeStart = CandidatelongPair.left;
+                    queryTimeEnd = CandidatelongPair.right;
+                    queryTimeInterval = queryTimeEnd - queryTimeStart;
+                    for (int currentLevel = 0; currentLevel <= maxLevel; currentLevel++) {
+                        if (!selectLevelTask_byYaos_V1(currentLevel, taskPriorityQueue)) {
+                            System.out.println(taskPriorityQueue);
+                            //如果在一层中找到了至少一批可以合并的文件，那么就终止，不再判断上面其他层级了
+                            //返回的taskPriorityQueue里面会包含一层内的多批次待合并文件资源
+                            break;//这里面包含了核心的执行选择合并任务的逻辑,直到当前层里面有就不去遍历下一层了，
+                        }
+                    }
+                }
+                while (taskPriorityQueue.size() > 0) { //前面可能遍历得到了好几批，候选文件的集和，这里分别把他们提交成任务
+                    LOGGER.info("文件选择器：选择了一批文件，但是被手动设置为并不提交合并任务。选择的文件是： ");//即使选择出来了文件，但是先不进行合并任务提交，先阻塞
+                    //System.out.println(taskPriorityQueue.poll().left);
+                    //createAndSubmitTask(taskPriorityQueue.poll().left); //如果有待合并的文件，那么就就提交这个任务
+                }
+            } catch (Exception e) {
+                LOGGER.error("Exception occurs while selecting files", e);
             }
-            while (taskPriorityQueue.size() > 0) { //前面可能遍历得到了好几批，候选文件的集和，这里分别把他们提交成任务
-                LOGGER.info("文件选择器：选择了一批文件，但是被手动设置为并不提交合并任务。选择的文件是： ");//即使选择出来了文件，但是先不进行合并任务提交，先阻塞
-                System.out.println(taskPriorityQueue.poll().left);
-                //createAndSubmitTask(taskPriorityQueue.poll().left); //如果有待合并的文件，那么就就提交这个任务
-            }
-        } catch (Exception e) {
-            LOGGER.error("Exception occurs while selecting files", e);
         }
     }
 
@@ -237,10 +264,6 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
             queryTimeEnd = ct2;
             queryTimeInterval = queryTimeEnd - queryTimeStart;
             return null;
-
-//            candidateQvStart = ft3;
-//            candidateQvEnd = ft4;
-//            return new Pair<Long, Long>(candidateQvStart,candidateQvEnd);
         }
     }
 
@@ -323,7 +346,6 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
 
         List<long[]> candidateList = new ArrayList<>();//仅仅记录了下标和位置
         List<TsFileResource> overlappedList = calculateOverlappedList(tsFileResources, level);//这个函数里面已经使用了外面的全局变量用户期望的查询时间段
-        double golbalIncome = 0.0; //记录全局收益，
         long offsetTime = 0;//overlappedList里面的文件是按照时间先后，新的文件在list的前面 下标号小，新的文件在List的头部
         //Collections.reverse(overlappedList);//调整文件的顺序，使得旧的文件在overlaplist的前面
         for (int i = 0; i < overlappedList.size(); i++) { //遍历每一个和时间范围有交叉的文件，在张lz的算法中，只有一个for循环，没有外层的循环，已经改成对应的单个for循环了
@@ -347,10 +369,6 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                 double amplifyFileSize = 0;
                 double SUMamplifyPersent = 0;//记录一个放大比例，理论上来说，只能是一个在[0,1]之间的数
 
-                ArrayList<Integer> Ampindex = new ArrayList<>();
-                ArrayList<Double> AmpindexPercent = new ArrayList<>();
-                //while (isAmplifyPersent){//判断写放大文件是否应该参与一次合并执行
-                //todo 新的文件编号小，明天优化测试这一部分
                 for (int ii = i; ii < j; ii++){
                     //遍历选中的这批文件范围，判断有读放大的是哪些，通常只有前几个（时间戳小的）文件涉及读放大问题
                     //但是，获取的列表中，越新的文件，越排在list的前面
@@ -363,15 +381,13 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                         amplifyPersent = fileTimeRangeGap / (maxEndTime - minStartTime);
                         amplifyFileSize = amplifyFileSize + amplifyPersent * AmPJudgetsFileResource.getTsFileSize();
                         SUMamplifyPersent += amplifyPersent;
-//                        Ampindex.add(ii);
-//                        AmpindexPercent.add(amplifyPersent);
                     }else {
                         break;
                     }
                 }
                 double SavedTime;
 
-                if (SUMamplifyPersent >= 0){//如果两个以上文件有重叠
+                if (SUMamplifyPersent > 0){//如果两个以上文件有重叠
                     SavedTime = numIncome * HDDSeekSpeed - amplifyFileSize / ReadHDDSpeed;//第一项是节省的寻道时间,第二项是读放大带来的负收益
                 }else {
                     SavedTime = numIncome * HDDSeekSpeed;//第一项是节省的寻道时间,第二项是读放大带来的负收益
@@ -385,7 +401,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
         // get the tuple with max reward among candidate list
         long[] maxTuple = new long[]{0, 0, 0L};
         for (long[] tuple : candidateList) { //这里是分析，取出两两之间，ij可能是记录的范围，总之是对比哪一组收益更大
-            if (tuple[2] > maxTuple[2]) {
+            if (tuple[2] >= maxTuple[2]) {//如果后面有更新的，那么优先考虑新文件，所以采用了等于号
                 maxTuple = tuple;
             }
         }
@@ -403,7 +419,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                         YaosselectedFiles.size(),
                         selectedFileSize);
             }
-            if (selectedFileSize >= targetCompactionFileSize //注意在选择完文件之后，需要合并的文件数最少得是3
+            if (selectedFileSize >= targetCompactionFileSize //注意在选择完文件之后，需要合并的文件数最少得是3，文件合并数已经修改
                     || YaosselectedFiles.size() >= config.getMaxInnerCompactionCandidateFileNum()) {//合并时候候选文件的数量如果为3，那么就合并，原本是30个合并
                 // submit the task
                 if (YaosselectedFiles.size() > 1) {//满足刷写条件之后，就封装这一批文件到任务队列中
