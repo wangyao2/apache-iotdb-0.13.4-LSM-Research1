@@ -74,10 +74,11 @@ public class QueryMonitorYaos {
     public void analyzeTheQueryFeature() {
         LOGGER.info("查询监视器：尝试提取序列的查询特征...");
 
-        if (QueryQRList.size() < 50) {
-            LOGGER.info("查询监视器：没有足够需要被分析的数据,或者搜集的查询数量过少！");
+        if (QueryQRList.size() < 80) {
+            LOGGER.info("查询监视器：没有足够需要被分析的数据,或者搜集的查询数量过少！收集的数量为：" + QueryQRList.size());
             return;
         }
+        LOGGER.info("查询监视器：收集了足够需要被分析的数据，收集的数量为：" + QueryQRList.size());
         QueryFeaturesList.clear();//分析完一批之后，就清空里面的内容
         QueryFeaturesGloablList.clear();
         //ContextCTList.clear();//分析完一批之后，就清空里面的内容
@@ -410,6 +411,7 @@ public class QueryMonitorYaos {
         QueryQRList.clear();
         ContextCTList.clear();
         QueryFeaturesGloablList.clear();
+        QueryFeaturesMeanShiftList.clear();
     }
 
     /**

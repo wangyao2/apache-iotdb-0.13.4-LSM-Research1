@@ -138,6 +138,9 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                 e.printStackTrace();
                 monitorYaos.clearFeatures();
                 throw new RuntimeException(e);
+            }finally {//根据收集的查询 分析出来一批查询样式后，在分析完毕后就清空掉
+                monitorYaos.clearFeatures();
+                System.out.println("根据当前批次收集的查询负载，分析完成，finally处理..");
             }
         }else {
             LOGGER.info("文件选择器：没有收集到足够的查询负载");
@@ -159,7 +162,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
         System.out.println(dateFormat.format(new Date((long) next_queryTimeEnd)));
         //计算最终的查询起始、末尾和间隔重叠分析的结果写回到全局变量里面，如果预测结果和聚类结果没有交集，那么就返回一个候选Pair
         Pair<Long, Long> CandidatelongPair = Overlapanalysis_BetweenClusterAnd(cluster_queryTimeStart, cluster_queryTimeEnd, next_queryTimeStart, next_queryTimeEnd);
-
+        //候选列表中是聚合结果作为备选
         if(next_queryTimeStart == 1706700000000L || next_queryTimeEnd == 1706700000000L){//没有足够的查询负载，就按照原始旧方法去执行合并
             try {
                 LOGGER.info("文件选择器：ML执行器没有运行，按照旧模式执行文件合并");//即使选择出来了文件，但是先不进行合并任务提交，先阻塞
@@ -169,8 +172,16 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                         break; //这里面包含了核心的执行选择合并任务的逻辑
                     }
                 }
-                while (taskPriorityQueue.size() > 0) {
+                while (!taskPriorityQueue.isEmpty()) {
+                    int count  = 1;
                     LOGGER.info("旧文件选择器：按照旧文件选择待合并文件选择了一批文件，但是被手动设置为并不提交合并任务。选择的文件是： ");//即使选择出来了文件，但是先不进行合并任务提交，先阻塞
+                    while (!taskPriorityQueue.isEmpty()){
+                        System.out.println("（旧版）输出一批文件，批次：" + count++);
+                        List<TsFileResource> theSelectedFiles = taskPriorityQueue.poll().left;
+                        for (TsFileResource theSelectedFile : theSelectedFiles) {
+                            System.out.println(theSelectedFile.getTsFile().getName());
+                        }
+                    }
                     break;//用来避免死循环，记得把这里删掉，在正常运行时
                     //System.out.println(taskPriorityQueue.poll().left);
                     //createAndSubmitTask(taskPriorityQueue.poll().left); //如果有待合并的文件，那么就就提交这个任务
@@ -208,7 +219,17 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                     }
                 }
                 while (taskPriorityQueue.size() > 0) { //前面可能遍历得到了好几批，候选文件的集和，这里分别把他们提交成任务
-                    LOGGER.info("文件选择器：选择了一批文件，但是被手动设置为并不提交合并任务。选择的文件是： ");//即使选择出来了文件，但是先不进行合并任务提交，先阻塞
+                    int count = 1;
+                    LOGGER.info("文件选择器：选择了一批文件，但是被手动设置为并不提交合并任务。");
+                    while (!taskPriorityQueue.isEmpty()){
+                        System.out.println("ML策略选择的批次输出一批文件，批次：" + count++);
+                        List<TsFileResource> theSelectedFiles = taskPriorityQueue.poll().left;
+                        for (TsFileResource theSelectedFile : theSelectedFiles) {
+                            System.out.println(theSelectedFile.getTsFile().getName());
+                        }
+                    }
+                    break;
+                    //即使选择出来了文件，但是先不进行合并任务提交，先阻塞
                     //System.out.println(taskPriorityQueue.poll().left);
                     //createAndSubmitTask(taskPriorityQueue.poll().left); //如果有待合并的文件，那么就就提交这个任务
                 }
@@ -294,7 +315,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
         long selectedFileSize = 0L;
         long targetCompactionFileSize = config.getTargetCompactionFileSize(); // 1GB的字节
 
-        for (TsFileResource currentFile : tsFileResources) {
+        for (TsFileResource currentFile : tsFileResources) {//在这里就被封装成多个批次了
             TsFileNameGenerator.TsFileName currentName = //把文件名进行解析成时间戳-版本-合并次数-跨空间次数的格式
                     TsFileNameGenerator.getTsFileName(currentFile.getTsFile().getName());
             if (currentName.getInnerCompactionCnt() != level //如果遍历的时候，跟当前处理的层级不一致，那么就跳过这个文件
