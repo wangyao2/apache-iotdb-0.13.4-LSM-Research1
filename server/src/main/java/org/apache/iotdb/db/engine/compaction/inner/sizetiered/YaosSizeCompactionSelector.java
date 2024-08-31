@@ -60,7 +60,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
     private static final Logger LOGGER =
             LoggerFactory.getLogger(IoTDBConstant.COMPACTION_LOGGER_NAME);
     private static IoTDBConfig config = IoTDBDescriptor.getInstance().getConfig();
-    SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");;
+    SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
     private long queryTimeStart= 1706716805000L;//2024-02-01 00:00:05 的 long类型时间戳
     private long queryTimeEnd= 1706716805000L;//2024-02-01 00:00:05 的 long类型时间戳
@@ -108,7 +108,13 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
         double[] Clustered_startTimeSum_InetvalTimeSum_EndTimeSum = new double[3];
         ArrayList<QueryMonitorYaos.FeatureofOneQuery> queryFeaturesMeanShiftList = QueryMonitorYaos.getQueryFeaturesMeanShiftList();
         if (!queryFeaturesMeanShiftList.isEmpty()){//用来打印显示一些数据
-            System.out.println(queryFeaturesMeanShiftList.get(0));
+            try {
+                System.out.println(queryFeaturesMeanShiftList.get(0));//这里读0就是，meanshift方法
+                System.out.println(queryFeaturesMeanShiftList.get(1));//这里读1就是，质心法方法
+            }catch (IndexOutOfBoundsException e){
+                e.printStackTrace();
+                System.out.println("可能只开启了一种聚类分析方法，没有完全读取到！");
+            }
             Clustered_startTimeSum_InetvalTimeSum_EndTimeSum[0] = queryFeaturesMeanShiftList.get(0).getStartTime();
             Clustered_startTimeSum_InetvalTimeSum_EndTimeSum[1] = queryFeaturesMeanShiftList.get(0).getInterval();
             Clustered_startTimeSum_InetvalTimeSum_EndTimeSum[2] = queryFeaturesMeanShiftList.get(0).getEndTime();
@@ -126,7 +132,8 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
             long[] ClusteredStartimeAndEndTime = null;//调用模型的训练和构建，同时完成输出预测，获得下一个时间可能被访问的
 
             try {//处理训练模型时发生的异常
-                predictedStartimeAndEndTime = MLAnalyzer.TranningAndPredict();//预测即将会被访问到的数据
+                //predictedStartimeAndEndTime = MLAnalyzer.TranningAndPredict();//预测即将会被访问到的数据，单步预测
+                predictedStartimeAndEndTime = MLAnalyzer.TranningAndPredictWithMoreStepAndFeatures();//预测即将会被访问到的数据
                 //ClusteredStartimeAndEndTime = MLAnalyzer.ClusteringTheCurrentQueryRrange();//汇总当前被访问到的数据，已经改掉了，现在是借助查询分析器去找负载中心
 
                 predited_Startime = predictedStartimeAndEndTime[0];
@@ -229,7 +236,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                         for (TsFileResource theSelectedFile : theSelectedFiles) {
                             System.out.println(theSelectedFile.getTsFile().getName());
                         }
-                        createAndSubmitTask(theSelectedFiles);
+                        //createAndSubmitTask(theSelectedFiles);
                     }
                     break;
                     //即使选择出来了文件，但是先不进行合并任务提交，先阻塞

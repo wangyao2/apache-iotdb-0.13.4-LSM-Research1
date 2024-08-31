@@ -25,6 +25,8 @@ public class MLQueryAnalyzerYaos {
     //记录一批（一组）查询结果的特征，用于构造训练集的准备
     private static ArrayList<QueryMonitorYaos.FeatureofGroupQuery> QuerySegmentFeatures = new ArrayList<>();
     private String Arrtibutes = "groupNum,start_mean,start_varian,end_mean,end_varian,QBegintime_mean,QBegintime_Varian,targetStartTime";
+    //多哥步骤预测下一个点
+    private String ArrtibutesMoreSteps = "groupNum,start_mean,start_varian,end_mean,end_varian,QBegintime_mean,QBegintime_Varian,targetStartTime";
 
     public MLQueryAnalyzerYaos() {
         System.out.println("ML分析器已被初始化，正在运行......");
@@ -39,7 +41,6 @@ public class MLQueryAnalyzerYaos {
      */
     public void setQuery(ArrayList<QueryMonitorYaos.FeatureofGroupQuery> tranningSet){
         QuerySegmentFeatures.clear();//先清空，再复制进来
-
         QuerySegmentFeatures.addAll(tranningSet);//浅复制，对现在的元素操作也会影响到之前的操作
     }
 
@@ -159,7 +160,150 @@ public class MLQueryAnalyzerYaos {
     }
 
     /**
-     * 对外暴露，训练模型，通过聚类等方法获取最近一批查询密度最高的地方，这一部分由负载收集器去处理
+     * 使用多步方法构建
+     * 对外暴露，用于构建数据集，训练模型，在构建的时候使用多步去预测
+     */
+    public long[] TranningAndPredictWithMoreStepAndFeatures() throws Exception {
+        long[] startTime_And_EndTime = new long[2];
+        String ArrtibutesMoreSteps =
+                "groupNum," +
+                "start_mean,end_mean,QBegintime_mean1," +
+                "start_mean2,end_mean2,QBegintime_mean2," +
+                "start_mean3,end_mean3,QBegintime_mean3," +
+                "targetStartTime";
+        int stepGroup = 3;//stepGroup定义了步长数量，假设是3组一预测
+        //1 解析数据成为可训练样本
+        // 声明样本集的特征有哪些，特征属性，已经声明在前面了，一个string 类型的字符串，方便后续调用使用
+        ArrayList<Attribute> arrt = new ArrayList<>();
+        String[] arrtibutts = ArrtibutesMoreSteps.split(",");
+
+        int[] TranningDataindices = {0,1,2,3,4,5,6,7,8,9};//从原始样本集中，提取某几列作为样本集
+        for (int index : TranningDataindices) {//填入特征，目标不在循环里输入
+            arrt.add(new Attribute(arrtibutts[index]));
+        }
+        arrt.add(new Attribute(arrtibutts[arrtibutts.length - 1]));//这里单独列出来，把最后一列作为预测目标
+        int ArrtSize = arrt.size();//样本集中属性的长度，包含末尾的标签
+
+        double[] sample; //存储一个片段的解析返回结果
+        int[] OneSampleTranningDataindices = {1,3,5};//从原始样本集中，提取某几列作为样本集，1,3,5分别对应了开始，结束，查询到达时刻
+        int OneSamplelength = OneSampleTranningDataindices.length;
+        double[][] MoreStepSamples = new double[stepGroup][OneSamplelength];
+        //存储一个样本的所有属性，一行是一个样本，stepGroup是行数
+        int count = 0;
+        double[] downSamplingSample = new double[TranningDataindices.length];//属性有多少维度，那么一行数据也有多少维度
+        Instances TranningData = new Instances("dataset", arrt, 0);//创建用于训练的样本数据
+        Instances TranningData_EndTime = new Instances("dataset", arrt, 0);//创建用于训练的样本数据
+
+        int SegmentNums = QuerySegmentFeatures.size();//判断收集到了多少个 可以训练的样本组，最大组数，用来协助划分
+        //for循环遍历每一个收集到的 样本段，将其封装成一个可用训练集
+        // todo g+i下标越界
+        for (int g = 0; g <= SegmentNums - stepGroup; g++){ //不能用增强for循环，这样就没法访问到相邻的其他元素了
+            //把内部所有的属性的数值都转化成一个double[]数组，方便构建可训练的实例对象
+            //需要从下面返回的 double数组中，截取一部分作为可用特征
+            downSamplingSample[0] = g;//样本属性中，第一个下标为组号
+
+            for (int i = 0; i < stepGroup; i++) {//步长为3那么就遍历3次，处理每一个样本，i是一个切片内的，第几个segment
+                QueryMonitorYaos.FeatureofGroupQuery QuerySegmentWithFeature = QuerySegmentFeatures.get(g + i);//分析连续的3个样本
+                sample = QuerySegmentWithFeature.toDoubleValueArray_TargetStartTime();
+                double[] ArrtselectedSample = new double[OneSamplelength];
+                count = 0;//记录一个样本中，每一个元素的含义
+                for (int index : OneSampleTranningDataindices) {
+                    ArrtselectedSample[count++] = sample[index];
+                }
+                MoreStepSamples[i] = ArrtselectedSample;
+            }
+            //扁平化，把MoreStepSamples中的内容，提取每一个子列，填充到展开，填充到另外的数组中
+            // 遍历二维数组并将元素复制到一维数组
+            for (int i = 0; i < stepGroup; i++) {
+                System.arraycopy(MoreStepSamples[i], 0, downSamplingSample,i * OneSamplelength + 1, OneSamplelength);
+            }
+
+            //下面的if和else 用于样本的 预测目标的 填充
+            if (g == SegmentNums - stepGroup){//注意多组时的步长号对截取样本时的影响。
+                //sample的第一个元素是组号，如果是最后一个组，则无需，也无法获得下一个时间段的 查询值 ，将其作为预测对象
+                double[] newArray_filledWithTarget = new double[ArrtSize];//这里包含了target标签的长度
+                double[] newArray_filledWithTarget_EndTime = new double[ArrtSize];//这里包含了target标签的长度，预测访问末尾时间的样本集
+
+                System.arraycopy(downSamplingSample, 0, newArray_filledWithTarget, 0, downSamplingSample.length);//前n-1个元素作为X，样本集，最后一个元素，使用标签y填充，用下一个时刻的值填充
+                System.arraycopy(downSamplingSample, 0, newArray_filledWithTarget_EndTime, 0, downSamplingSample.length);//前n-1个元素作为X，样本集，最后一个元素，使用标签y填充，用下一个时刻的值填充
+
+                newArray_filledWithTarget[downSamplingSample.length] = 0;//如果是最后一个元素，那么就没有训练的标签，应该作为 被预测的对象使用
+                newArray_filledWithTarget_EndTime[downSamplingSample.length] = 0;//如果是最后一个元素，那么就没有训练的标签，应该作为 被预测的对象使用
+
+                TranningData.add(new DenseInstance(1.0,newArray_filledWithTarget));//用数组封装构建成样本
+                TranningData_EndTime.add(new DenseInstance(1.0,newArray_filledWithTarget_EndTime));//用数组封装构建成样本
+            } else{//其他组（不是最后一个组），就把下一个时刻的 起始时间作为预测的 标签y，放入到sample数据的最后一个元素
+                double[] newArray_filledWithTarget = new double[ArrtSize];//这里填入target标签的长度，整个样本的长度已经
+                double[] newArray_filledWithTarget_EndTime = new double[ArrtSize];//这里包含了target标签的长度
+
+                System.arraycopy(downSamplingSample, 0, newArray_filledWithTarget, 0, downSamplingSample.length);//前n-1个元素作为X，样本集，最后一个元素，使用标签y填充，用下一个时刻的值填充
+                System.arraycopy(downSamplingSample, 0, newArray_filledWithTarget_EndTime, 0, downSamplingSample.length);//前n-1个元素作为X，样本集，最后一个元素，使用标签y填充，用下一个时刻的值填充
+
+                //newArray数组的最后一个元素,用下一个分段的值填充,例如sample[1]，把下一个时间段的起始时间作为预测目标值
+                //stepGroup这个int参数标志了这一步跨越多少，也就是 向后看第几个拿出来作为预测目标，例如，3步一样本，则第4个点作为训练的预测目标
+                newArray_filledWithTarget[downSamplingSample.length] = QuerySegmentFeatures.get(g+stepGroup).toDoubleValueArray_TargetStartTime()[1];//一个段的开始时间下标1
+                newArray_filledWithTarget_EndTime[downSamplingSample.length] = QuerySegmentFeatures.get(g+stepGroup).toDoubleValueArray_TargetStartTime()[3];//一个段的结束时间下标3
+
+                TranningData.add(new DenseInstance(1.0,newArray_filledWithTarget));//用数组封装构建成样本
+                TranningData_EndTime.add(new DenseInstance(1.0,newArray_filledWithTarget_EndTime));//用数组封装构建成样本
+            }
+        }
+        //2 构建模型
+        // 设置类别属性，默认把属性的最后一列，当作预测的标签列
+        if (TranningData.classIndex() == -1) TranningData.setClassIndex(TranningData.numAttributes() - 1);
+        if (TranningData_EndTime.classIndex() == -1) TranningData_EndTime.setClassIndex(TranningData_EndTime.numAttributes() - 1);
+
+        // todo 补充划分训练集和测试集的内容
+        // 划分数据集
+
+        int testSize = 1; // 测试集大小
+        int trainSize = TranningData.numInstances() - testSize; // 训练集大小
+
+        Instances train_SpiltData_StartTime = new Instances(TranningData, 0, trainSize);//预测起始时间
+        Instances train_SpiltData_EndTime = new Instances(TranningData_EndTime, 0, trainSize);//预测起始时间
+
+        //Instances test = new Instances(TranningData, trainSize, testSize);
+
+        train_SpiltData_StartTime.randomize(new java.util.Random(0)); // 训练集打散
+        train_SpiltData_EndTime.randomize(new java.util.Random(0)); // 训练集打散
+
+        RandomForest model_StartTime = new RandomForest();
+        model_StartTime.buildClassifier(train_SpiltData_StartTime);
+
+        RandomForest model_EndTime = new RandomForest();
+        model_EndTime.buildClassifier(train_SpiltData_EndTime);
+
+
+        //3 给出预测结果
+        Instance StartTime_lastInstance = TranningData.lastInstance();
+        System.out.println("被预测样本：" + StartTime_lastInstance);
+        double Predicted_startTime = model_StartTime.classifyInstance(StartTime_lastInstance);
+        System.out.println("预测结果：" + Predicted_startTime);
+
+        Instance TestInstance1 = TranningData.instance(TranningData.size() - 1);//选择前面可能的样本进行预测
+        System.out.println("被预测样本" + TestInstance1);
+        System.out.println("预测结果：" + model_StartTime.classifyInstance(TestInstance1));
+
+        Instance TestInstance2 = TranningData.instance(TranningData.size() - 2);//选择前面可能的样本进行预测
+        System.out.println("被预测样本" + TestInstance2);
+        System.out.println("预测结果：" + model_StartTime.classifyInstance(TestInstance2));
+
+        startTime_And_EndTime[0] = (long) Predicted_startTime;
+        //++++++++++++++++++++前面预测++++++下一个查询涉及的起始时间++++++++++++++++++
+        //++++++++++++++++++++下面预测++++++下一个查询涉及的起始时间++++++++++++++++++
+
+        Instance EndTime_lastInstance = TranningData_EndTime.lastInstance();
+        System.out.println("被预测样本，endtime：" + EndTime_lastInstance);
+        double Predicted_endTime = model_EndTime.classifyInstance(EndTime_lastInstance);
+        System.out.println("预测结果，endtime：" + Predicted_endTime);
+
+        startTime_And_EndTime[1] = (long) Predicted_endTime;
+        QuerySegmentFeatures.clear();//这个列表的清空，也会导致QueryMonitor中的元素清空
+        return startTime_And_EndTime;
+    }
+
+    /**
+     * 对外暴露，暂时不启用，训练模型，通过聚类等方法获取最近一批查询密度最高的地方，这一部分由负载收集器去处理
      */
     public long[] ClusteringTheCurrentQueryRrange() {
         long[] startTime_And_EndTime = new long[2];

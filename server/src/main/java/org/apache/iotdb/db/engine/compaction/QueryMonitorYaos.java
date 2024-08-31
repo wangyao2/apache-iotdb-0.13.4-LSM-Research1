@@ -154,7 +154,7 @@ public class QueryMonitorYaos {
 //        });
         GROUP_SIZE_Dynamic();
         ConvertTheQueryListToSegmentFeatures();//使用分析方法，把收到的查询负载解析成很多特征和标签样式
-        //analyzeTheGolableFeatures_UsingMeanShift();//使用方法分析，收集负载的特征，把负载解析成几个类型的特征，存储到QueryFeaturesGloablList内
+        analyzeTheGolableFeatures_UsingMeanShift();//使用方法分析，收集负载的特征，把负载解析成几个类型的特征，存储到QueryFeaturesGloablList内
         analyzeTheGolableFeatures_UsingNormalCentroid();
         DirectilyOutputTheQueryFeatureToCsv_asTranningSample();//把收集到的负载写入到csv文件里
         QueryFeaturesList.clear();//分析完一批之后，就清空里面的内容
@@ -220,6 +220,13 @@ public class QueryMonitorYaos {
         }
         double[] centroid = {startTimeSum / count, InetvalTimeSum / count, EndTimeSum / count};//计算质心，返回一个计算过的质心对象
         QueryFeaturesMeanShiftList.add(new FeatureofOneQuery((long) centroid[0],(long) centroid[1],(long) centroid[2]));
+
+        System.out.println("质心法求解结果：" + "↓↓↓↓");
+        long Clustered_Startime = QueryFeaturesMeanShiftList.get(0).getStartTime();
+        long Cluster_queryTimeEnd = QueryFeaturesMeanShiftList.get(0).getEndTime();
+        System.out.println(dateFormat.format(new Date((long) Clustered_Startime)));
+        System.out.println(dateFormat.format(new Date((long) Cluster_queryTimeEnd)));
+        System.out.println("质心法求解结果：" + "↑↑↑↑");
         return centroid;
     }
 
@@ -229,6 +236,7 @@ public class QueryMonitorYaos {
         }
         return QueryFeaturesMeanShiftList;
     }
+
     /**
      * 使用meanShift法去分析一批查询负载的访问特征
      */
@@ -239,6 +247,13 @@ public class QueryMonitorYaos {
             FeatureofOneQuery OneGloableFeature = meanShift_moveToCentor(ARandomQuery, QueryFeaturesList, bandWith);
             QueryFeaturesMeanShiftList.add(OneGloableFeature);
         }
+
+        System.out.println("MeanShift求解结果：" + "↓↓↓↓");
+        long Clustered_Startime = QueryFeaturesMeanShiftList.get(0).getStartTime();
+        long Cluster_queryTimeEnd = QueryFeaturesMeanShiftList.get(0).getEndTime();
+        System.out.println(dateFormat.format(new Date((long) Clustered_Startime)));
+        System.out.println(dateFormat.format(new Date((long) Cluster_queryTimeEnd)));
+        System.out.println("MeanShift求解结果：" + "↑↑↑↑");
     }
 
 
