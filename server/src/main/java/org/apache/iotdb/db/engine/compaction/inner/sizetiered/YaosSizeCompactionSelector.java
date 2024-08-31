@@ -181,6 +181,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                         for (TsFileResource theSelectedFile : theSelectedFiles) {
                             System.out.println(theSelectedFile.getTsFile().getName());
                         }
+                        //createAndSubmitTask(theSelectedFiles);
                     }
                     break;//用来避免死循环，记得把这里删掉，在正常运行时
                     //System.out.println(taskPriorityQueue.poll().left);
@@ -195,9 +196,10 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                 //临时手动设置queryTimeStart和queryTimeEnd，方便调试合并收益的计算流程
 //            queryTimeStart = 1706817638000L;//临时放置
 //            queryTimeEnd = 1707164353000L;//临时放置
-//            queryTimeInterval = queryTimeEnd - queryTimeStart;
+//            queryTimeInterval = queryTimeEnd - queryTimeStart;，补充在这里，time tiered方法对于间隔值的计算，不能用重叠分析的
                 for (int currentLevel = 0; currentLevel <= maxLevel; currentLevel++) {
                     if (!selectLevelTask_byYaos_V1(currentLevel, taskPriorityQueue)) {
+                    //if (!selectLevelTask_TimeTiered(currentLevel, taskPriorityQueue, cluster_queryTimeStart, cluster_queryTimeEnd)) {
                         System.out.println("选中的文件数量为：" + taskPriorityQueue.size());
                         //如果在一层中找到了至少一批可以合并的文件，那么就终止，不再判断上面其他层级了
                         //返回的taskPriorityQueue里面会包含一层内的多批次待合并文件资源
@@ -227,6 +229,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                         for (TsFileResource theSelectedFile : theSelectedFiles) {
                             System.out.println(theSelectedFile.getTsFile().getName());
                         }
+                        createAndSubmitTask(theSelectedFiles);
                     }
                     break;
                     //即使选择出来了文件，但是先不进行合并任务提交，先阻塞
@@ -306,6 +309,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
      *                          each batch
      * @return return whether to continue the search to higher levels
      * @throws IOException
+     * 实验中的默认方法，进行批次选择和并提交
      */
     private boolean selectLevelTask(
             int level, PriorityQueue<Pair<List<TsFileResource>, Long>> taskPriorityQueue)
@@ -341,6 +345,142 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                 }
                 selectedFileList = new ArrayList<>();//然后清空临时队列，继续检测当前层级的其他文件是否仍然满足条件，直到遍历完所有的文件一遍
                 selectedFileSize = 0L;
+                shouldContinueToSearch = false;
+            }
+        }
+        return shouldContinueToSearch;
+    }
+
+    /*
+    SizeTired，把一层内的全部文件合并
+    算法对比试验，仅仅把一层的数据全部选中，仅仅把最低层的文件，合并到下一层内，which merges all SSTables as one to the next level each time one level is full.
+    This scheme is the default compaction scheme in Cassandra.
+    */
+    private boolean selectLevelTask_SizeTiredLevel(
+            int level, PriorityQueue<Pair<List<TsFileResource>, Long>> taskPriorityQueue)
+            throws IOException {
+        boolean shouldContinueToSearch = true;
+        List<TsFileResource> selectedFileList = new ArrayList<>();
+        long selectedFileSize = 0L;
+        long targetCompactionFileSize = config.getTargetCompactionFileSize(); // 1GB的字节
+        for (TsFileResource currentFile : tsFileResources) {//在这里就被封装成多个批次了
+            TsFileNameGenerator.TsFileName currentName = //把文件名进行解析成时间戳-版本-合并次数-跨空间次数的格式
+                    TsFileNameGenerator.getTsFileName(currentFile.getTsFile().getName());
+            if (currentName.getInnerCompactionCnt() != level //如果遍历的时候，跟当前处理的层级不一致，那么就跳过这个文件
+                    || currentFile.getStatus() != TsFileResourceStatus.CLOSED) {
+                selectedFileList.add(currentFile); //把当前层级的文件持续的添加到临时队列selectedFileList当中，只要没满足142行的条件，就一直添加新的进来
+                selectedFileSize += currentFile.getTsFileSize();
+                LOGGER.debug("Add tsfile {}", currentFile);
+            }
+        }
+        // 提交任务要拿到后面，本层所有文件被检索完毕后，检查本层文件数量，如果有两个及以上，那么提交，且不再处理下层文件
+        if (selectedFileList.size() > 1) {//满足刷写条件之后，就封装这一批文件到任务队列中
+            taskPriorityQueue.add(new Pair<>(new ArrayList<>(selectedFileList), selectedFileSize));
+            shouldContinueToSearch = false;
+        }
+        return shouldContinueToSearch;
+    }
+
+    /*
+    FullLevel，把连续两层的文件合并
+    算法对比试验，Full把连续两层的数据全部合并到一层中
+    */
+    private boolean selectLevelTask_FullLevel(
+            int level, PriorityQueue<Pair<List<TsFileResource>, Long>> taskPriorityQueue)
+            throws IOException {
+        boolean shouldContinueToSearch = true;
+        List<TsFileResource> selectedFileList = new ArrayList<>();
+        long selectedFileSize = 0L;
+        long targetCompactionFileSize = config.getTargetCompactionFileSize(); // 1GB的字节
+
+        for (TsFileResource currentFile : tsFileResources) {//在这里就被封装成多个批次了
+            TsFileNameGenerator.TsFileName currentName = //把文件名进行解析成时间戳-版本-合并次数-跨空间次数的格式
+                    TsFileNameGenerator.getTsFileName(currentFile.getTsFile().getName());
+            if (currentName.getInnerCompactionCnt() <= 1 //不限制仅仅合并一层内的文件，触发合并时把低层的数据全部合并，默认LSM的树大小只有3层
+                    || currentFile.getStatus() != TsFileResourceStatus.CLOSED) {
+                selectedFileList.add(currentFile); //把当前层级的文件持续的添加到临时队列selectedFileList当中，只要没满足142行的条件，就一直添加新的进来
+                selectedFileSize += currentFile.getTsFileSize();
+                LOGGER.debug("Add tsfile {}", currentFile);
+            }
+        }
+        if (selectedFileList.size() > 1) {//满足刷写条件之后，就封装这一批文件到任务队列中
+            taskPriorityQueue.add(new Pair<>(new ArrayList<>(selectedFileList), selectedFileSize));
+            shouldContinueToSearch = false;
+        }
+        return shouldContinueToSearch;
+    }
+
+    /*
+    算法对比试验，Zlz设计的初版TimeTiered，基于mean shift和时间偏移量去计算
+    在实验之前，只保留聚类分析的结果，原算法保持不变，原封不动使用
+    */
+    private boolean selectLevelTask_TimeTiered(
+            int level, PriorityQueue<Pair<List<TsFileResource>, Long>> taskPriorityQueue,
+            long Clustered_Startime, long Clustered_Endtime)
+            throws IOException {
+        boolean shouldContinueToSearch = true;
+        long selectedFileSize = 0L;
+        long targetCompactionFileSize = config.getTargetCompactionFileSize(); // 1GB的字节
+        queryTimeInterval = Clustered_Endtime - Clustered_Startime;//旧版的time tiered方法，仅仅是使用聚类分析的结果
+        ////==========核心逻辑的编码位置=================
+        // 现在的文件添加和选择方法是按照顺序选择，我们在这个等号的范围内编写自己的文件选择策略
+        List<long[]> candidateList = new ArrayList<>();//仅仅记录了下标和位置
+        List<TsFileResource> overlappedList = calculateOverlappedList_TimeTiered(tsFileResources, Clustered_Startime, Clustered_Endtime);
+        double mergeSpeed = 16;//这两个写入 合并 速率参数，暂时还不能确定具体数据
+        double writeSpeed = 20;//原版本里也没有这个参数
+        long offsetTime = 0;//overlappedList里面的文件是按照时间先后，新的文件在list的前面 下标号小
+        for (int i = 0; i < overlappedList.size(); i++) { //遍历每一个有交叉的文件，在张lz的算法中，只有一个for循环，没有外层的循环，已经改成对应的单个for循环了
+            TsFileResource tsFileResource = overlappedList.get(i);
+            long mergedTimeInterval = tsFileResource.getTimeIndex().getMaxEndTime() - tsFileResource.getTimeIndex().getMinStartTime();
+            //获取当前文件的时间跨度
+            //这里原本是根据tsfileresource去计算起止时间,tsFileResource的文件大小是long类型的字节，mergeSpeed是MB，默认是16MB每秒
+            long mergeTimeCost = (long) (tsFileResource.getTsFileSize() / mergeSpeed * writeSpeed);//我预计这里应该是用毫秒数，合并耗时，文件大小除以100，注意一下文件大小的单位，long类型，应该是字节数
+            if (queryTimeInterval < (mergedTimeInterval + mergeTimeCost + offsetTime)) {//判断文件的跨度还没有超过查询的特征间隔
+                continue;
+            }
+            offsetTime += mergedTimeInterval;
+            for (int j = i + 1; j < overlappedList.size(); j++) { //似乎是遍历i后面的每一个文件
+                TsFileResource endTsFileResource = overlappedList.get(j);
+                mergeTimeCost += endTsFileResource.getTsFileSize() / mergeSpeed * writeSpeed;
+                long allReward = 0L;
+                int maxReward = j - i; //这个应该是对应文件的数量,在两个文件i，j之间有多少个
+                long fullRewardTime = queryTimeInterval - offsetTime - mergedTimeInterval - mergeTimeCost;//可以理解成，有效时间间隔
+                allReward += maxReward * fullRewardTime;
+                if (allReward > 0) {
+                    // calculate not full reward time, from 1 to max_reward, which is active as long as the interval of every file
+                    for (int k = 0; k < maxReward + 1; k++) {
+                        TsFileResource currTsFileResource = overlappedList.get(k);
+                        allReward += currTsFileResource.getTimeIndex().getMaxEndTime() - currTsFileResource.getTimeIndex().getMinStartTime();
+                        //这里原本是根据tsfileresource去计算起止时间
+                    }
+                }
+                candidateList.add(new long[]{i, j, allReward}); //这里似乎是以下标的方式，记录两两文件的互相之间，reward
+            }
+        }
+        // get the tuple with max reward among candidate list
+        long[] maxTuple = new long[]{0, 0, 0L};
+        for (long[] tuple : candidateList) { //这里是分析，取出两两之间，ij可能是记录的范围，总之是对比哪一组收益更大
+            if (tuple[2] > maxTuple[2]) {
+                maxTuple = tuple;
+            }
+        }
+        TsFileResource currentFile;
+        List<TsFileResource> YaosselectedFiles = new ArrayList<>();//根据合并受益，选择被合并的候选文件
+        if (!overlappedList.isEmpty()){//如果有文件才执行，以免系统一直报索引溢出的错误
+            for (int i = (int) maxTuple[0]; i <= maxTuple[1]; i++) { //把前面收益最大的那一个，对应的ij下标范围内的文件选择出来
+                currentFile = overlappedList.get(i);
+                YaosselectedFiles.add(overlappedList.get(i));//这个或许就是最终选择出来的文件
+                selectedFileSize += currentFile.getTsFileSize();
+                LOGGER.debug("Add tsfile {}", currentFile);
+            }
+            if (selectedFileSize >= targetCompactionFileSize //注意在选择完文件之后，需要合并的文件数最少得是3
+                    || YaosselectedFiles.size() >= config.getMaxInnerCompactionCandidateFileNum()) {//合并时候候选文件的数量如果为3，那么就合并，原本是30个合并
+                // submit the task
+                if (YaosselectedFiles.size() > 1) {//满足刷写条件之后，就封装这一批文件到任务队列中
+                    taskPriorityQueue.add(new Pair<>(new ArrayList<>(YaosselectedFiles), selectedFileSize));
+                }
+                //selectedFileSize = 0L;//目前算法每次调用时，只封装生成一个合并任务，原本的是在一层中搜索多次，一次搜索封装多个任务
+                //因为，只搜索一次，
                 shouldContinueToSearch = false;
             }
         }
@@ -501,6 +641,41 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
 
                 if (time > queryTimeInterval) {//感觉这里应该是计算设备的时间跨度，我们把时间跨度设置成了7天的间隔；我生成了7个文件，但是这7个文件的真是时间间隔可能并不能超过设定的查询阈值大小
                     break;//这里的判断条件还有待考证，如果每一个文件跨越的时间范围都比较小，累加起来，不会超过一个查询间隔的
+                }
+            }
+        }
+        return overlappedList;
+    }
+
+    /*
+    算法对比试验，配合TimeTiered原版的OverlappedList重叠度计算代码
+    */
+    private List<TsFileResource> calculateOverlappedList_TimeTiered(List<TsFileResource> tsFileResources, long Clustered_Startime,long Clustered_Endtime) throws IOException {
+        //从zhanglingzhe0.12版本复现至此，计算重叠度
+        //后来分析发现，这个不是计算重叠度的，而是判断候选文件列表里，有没有和目标时间范围重叠的文件
+        List<TsFileResource> overlappedList = new ArrayList<>();
+        long time = 0;
+        long cluster_queryTimeInterval = Clustered_Endtime - Clustered_Startime;
+        ITimeIndex timeIndex;
+        for (int i = 0; i < tsFileResources.size(); i++) {//顺序获取待合并的资源文件
+            //遍历每一个资源文件，看下标的开始索引，是从最后一个开始遍历，默认情况下是先遍历距离当前时间最新的文件
+            TsFileResource tsFileResource = tsFileResources.get(i);
+            if (tsFileResource.getStatus() != TsFileResourceStatus.CLOSED) { //或者文件不是关闭状态，就跳过
+                continue;
+            }
+            Set<String> devicesNameInOneTsfie = tsFileResource.getDevices();//获得所有的设备名
+            if (!devicesNameInOneTsfie.isEmpty()) {// 原方法tsFileResource.getDeviceToIndexMap().size() > 0
+                //寻找有重叠的文件，如果这个文件里面有内容
+                timeIndex = tsFileResource.getTimeIndex();//这里面记录了文件内每一个序列的起止时间戳
+                long maxEndTime = timeIndex.getMaxEndTime();//暂时仅仅以全局的时间去判断，还没精确到具体的一个设备上
+                long minStartTime = timeIndex.getMinStartTime();
+                if(minStartTime > Clustered_Endtime){
+                    break;
+                }
+                overlappedList.add(tsFileResource);
+                time += maxEndTime - minStartTime;//感觉这个得放里面，对应一个文件的时间跨度，对于顺序空间来说，每个文件之间是没有重叠的
+                if (time > cluster_queryTimeInterval) {
+                    break;
                 }
             }
         }
