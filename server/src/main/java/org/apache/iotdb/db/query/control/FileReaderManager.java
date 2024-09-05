@@ -202,9 +202,9 @@ public class FileReaderManager {
       }
       readerMap.remove(tsFilePath);
       refMap.remove(tsFilePath);
-      if (resourceLogger.isDebugEnabled()) {
-        resourceLogger.debug("{} TsFileReader is closed because of no reference.", tsFilePath);
-      }
+//      if (resourceLogger.isDebugEnabled()) {
+//        resourceLogger.debug("{} TsFileReader is closed because of no reference.", tsFilePath);
+//      }
     }
   }
 

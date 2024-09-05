@@ -16,6 +16,8 @@ import java.io.IOException;
 import java.lang.reflect.Field;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -31,6 +33,7 @@ public class QueryMonitorYaos {
 
     SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");;
     private static final QueryMonitorYaos INSTANCE = new QueryMonitorYaos();
+    private final ReadWriteLock QueryRWlock = new ReentrantReadWriteLock();//增加锁机制，确保实验运行时的查询添加捕获是合理的
     private static final Logger LOGGER =
             LoggerFactory.getLogger(IoTDBConstant.COMPACTION_LOGGER_NAME);
     private static ArrayList<QueryPlan> QueryQRList = new ArrayList<>();//每一个新到达的query都添加进来作为备用
@@ -59,10 +62,13 @@ public class QueryMonitorYaos {
     public void addAquery(QueryPlan queryPlan, QueryContext context) {
         //每次执行查询时，都把查询涉及到的设备和时间范围捕获过来，拿到
         //LOGGER.debug("接收到查询请求！ - {}", queryPlan);
+        QueryRWlock.writeLock().lock();
         if(queryPlan != null && context != null){//确保两个都不为空对象，才执行插入
             QueryQRList.add(queryPlan);
             ContextCTList.add(context);//暂时使用不到；现在启用，用来收集查询的开始时间
         }
+        QueryRWlock.writeLock().unlock();
+
 //        analyzeTheQueryFeature();//暂时先放在这里，后面要移动到合并查询之前，进行查询样式的分析
 //        analyzeTheGolableFeatures();
     }
@@ -78,11 +84,12 @@ public class QueryMonitorYaos {
             LOGGER.info("查询监视器：没有足够需要被分析的数据,或者搜集的查询数量过少！收集的数量为：" + QueryQRList.size());
             return;
         }
+        //感觉用复制机制也能保证并发安全，但是却需要去实现
         LOGGER.info("查询监视器：收集了足够需要被分析的数据，收集的数量为：" + QueryQRList.size());
         QueryFeaturesList.clear();//分析完一批之后，就清空里面的内容
         QueryFeaturesGloablList.clear();
         //ContextCTList.clear();//分析完一批之后，就清空里面的内容
-
+        QueryRWlock.readLock().lock();
         for (QueryPlan queryPlan : QueryQRList) {//这个链表是按照查询负载的到达顺序存储的，过滤到非范围查询
             IExpression expression;//临时创建一个空对象指针，节省空间
             //todo 外区间范围查询暂未修复，预计不会使用
@@ -146,6 +153,7 @@ public class QueryMonitorYaos {
                 LOGGER.debug("Current queryPlan is {} which is not matched", queryPlan);
             }
         }
+        QueryRWlock.readLock().unlock();
 //        Collections.sort(ContextCTList, new Comparator<QueryContext>() {//无需排序就按照数据库接收到查询请求的顺序去做
 //            @Override
 //            public int compare(QueryContext o1, QueryContext o2) {
@@ -155,7 +163,7 @@ public class QueryMonitorYaos {
         GROUP_SIZE_Dynamic();
         ConvertTheQueryListToSegmentFeatures();//使用分析方法，把收到的查询负载解析成很多特征和标签样式
         analyzeTheGolableFeatures_UsingMeanShift();//使用方法分析，收集负载的特征，把负载解析成几个类型的特征，存储到QueryFeaturesGloablList内
-        analyzeTheGolableFeatures_UsingNormalCentroid();
+        //analyzeTheGolableFeatures_UsingNormalCentroid();
         DirectilyOutputTheQueryFeatureToCsv_asTranningSample();//把收集到的负载写入到csv文件里
         QueryFeaturesList.clear();//分析完一批之后，就清空里面的内容
         QueryQRList.clear();
