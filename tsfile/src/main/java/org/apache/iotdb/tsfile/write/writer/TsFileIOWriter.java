@@ -261,12 +261,12 @@ public class TsFileIOWriter implements AutoCloseable {
     chunkHeader.serializeTo(out.wrapAsStream());
     out.write(chunk.getData());
     endCurrentChunk();
-    if (logger.isDebugEnabled()) {
-      logger.debug(
-          "end flushing a chunk:{}, totalvalue:{}",
-          chunkHeader.getMeasurementID(),
-          chunkMetadata.getNumOfPoints());
-    }
+//    if (logger.isDebugEnabled()) {
+//      logger.debug(
+//          "end flushing a chunk:{}, totalvalue:{}",
+//          chunkHeader.getMeasurementID(),
+//          chunkMetadata.getNumOfPoints());
+//    }
   }
 
   /** end chunk and write some log. */

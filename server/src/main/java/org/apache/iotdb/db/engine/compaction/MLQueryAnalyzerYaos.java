@@ -279,14 +279,15 @@ public class MLQueryAnalyzerYaos {
         System.out.println("被预测样本：" + StartTime_lastInstance);
         double Predicted_startTime = model_StartTime.classifyInstance(StartTime_lastInstance);
         System.out.println("预测结果：" + Predicted_startTime);
-
-        Instance TestInstance1 = TranningData.instance(TranningData.size() - 1);//选择前面可能的样本进行预测
-        System.out.println("被预测样本" + TestInstance1);
-        System.out.println("预测结果：" + model_StartTime.classifyInstance(TestInstance1));
-
-        Instance TestInstance2 = TranningData.instance(TranningData.size() - 2);//选择前面可能的样本进行预测
-        System.out.println("被预测样本" + TestInstance2);
-        System.out.println("预测结果：" + model_StartTime.classifyInstance(TestInstance2));
+//
+//        Instance TestInstance1 = TranningData.instance(TranningData.size() - 1);//选择前面可能的样本进行预测
+//        System.out.println("被预测样本" + TestInstance1);
+//        System.out.println("预测结果：" + model_StartTime.classifyInstance(TestInstance1));
+//
+//        Instance TestInstance2 = TranningData.instance(TranningData.size() - 2);//选择前面可能的样本进行预测
+//        System.out.println("被预测样本" + TestInstance2);
+//        System.out.println("预测结果：" + model_StartTime.classifyInstance(TestInstance2));
+        //起始时间的跨步预测
 
         startTime_And_EndTime[0] = (long) Predicted_startTime;
         //++++++++++++++++++++前面预测++++++下一个查询涉及的起始时间++++++++++++++++++
@@ -296,6 +297,7 @@ public class MLQueryAnalyzerYaos {
         System.out.println("被预测样本，endtime：" + EndTime_lastInstance);
         double Predicted_endTime = model_EndTime.classifyInstance(EndTime_lastInstance);
         System.out.println("预测结果，endtime：" + Predicted_endTime);
+        //结束时间的跨步预测
 
         startTime_And_EndTime[1] = (long) Predicted_endTime;
         QuerySegmentFeatures.clear();//这个列表的清空，也会导致QueryMonitor中的元素清空

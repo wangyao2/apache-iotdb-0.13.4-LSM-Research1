@@ -80,7 +80,7 @@ public class QueryMonitorYaos {
     public void analyzeTheQueryFeature() {
         LOGGER.info("查询监视器：尝试提取序列的查询特征...");
 
-        if (QueryQRList.size() < 80) {
+        if (QueryQRList.size() < 50) {
             LOGGER.info("查询监视器：没有足够需要被分析的数据,或者搜集的查询数量过少！收集的数量为：" + QueryQRList.size());
             return;
         }
@@ -163,8 +163,8 @@ public class QueryMonitorYaos {
         GROUP_SIZE_Dynamic();
         ConvertTheQueryListToSegmentFeatures();//使用分析方法，把收到的查询负载解析成很多特征和标签样式
         analyzeTheGolableFeatures_UsingMeanShift();//使用方法分析，收集负载的特征，把负载解析成几个类型的特征，存储到QueryFeaturesGloablList内
-        //analyzeTheGolableFeatures_UsingNormalCentroid();
-        DirectilyOutputTheQueryFeatureToCsv_asTranningSample();//把收集到的负载写入到csv文件里
+        analyzeTheGolableFeatures_UsingNormalCentroid();
+        //DirectilyOutputTheQueryFeatureToCsv_asTranningSample();//把收集到的负载写入到csv文件里
         QueryFeaturesList.clear();//分析完一批之后，就清空里面的内容
         QueryQRList.clear();
         ContextCTList.clear();
@@ -179,7 +179,7 @@ public class QueryMonitorYaos {
     private void GROUP_SIZE_Dynamic() {
         int lastGroupSize = GROUP_SIZE;//先记录下来上一个组选用的多少
 
-        GROUP_SIZE = 10;
+        GROUP_SIZE = 4;
     }
 
     /**

@@ -331,8 +331,8 @@ public class IoTDBConfig {
   /** When a sequence TsFile's file size (in byte) exceed this, the TsFile is forced closed. */
   private long seqTsFileSize = 0L;
 
-  /** When a memTable's size (in byte) exceeds this, the memtable is flushed to disk. Unit: byte */
-  private long memtableSizeThreshold = 1024 * 1024 * 1024L;
+  /** When a memTable's size (in byte) exceeds this, the memtable is flushed to disk. Unit: byte ，默认是1024MB刷写一个*/
+  private long memtableSizeThreshold = 1 * 1024 * 1024L;
 
   /** Whether to timed flush sequence tsfiles' memtables. */
   private boolean enableTimedFlushSeqMemtable = false;
@@ -434,7 +434,7 @@ public class IoTDBConfig {
   private long compactionAcquireWriteLockTimeout = 60_000L;
 
   /** The max candidate file num in inner space compaction */
-  private int maxInnerCompactionCandidateFileNum = 7;
+  private int maxInnerCompactionCandidateFileNum = 10;
 
   /** The max candidate file num in cross space compaction */
   private int maxCrossCompactionCandidateFileNum = 1000;
