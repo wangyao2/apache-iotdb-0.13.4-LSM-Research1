@@ -279,15 +279,6 @@ public class MLQueryAnalyzerYaos {
         System.out.println("被预测样本：" + StartTime_lastInstance);
         double Predicted_startTime = model_StartTime.classifyInstance(StartTime_lastInstance);
         System.out.println("预测结果：" + Predicted_startTime);
-//
-//        Instance TestInstance1 = TranningData.instance(TranningData.size() - 1);//选择前面可能的样本进行预测
-//        System.out.println("被预测样本" + TestInstance1);
-//        System.out.println("预测结果：" + model_StartTime.classifyInstance(TestInstance1));
-//
-//        Instance TestInstance2 = TranningData.instance(TranningData.size() - 2);//选择前面可能的样本进行预测
-//        System.out.println("被预测样本" + TestInstance2);
-//        System.out.println("预测结果：" + model_StartTime.classifyInstance(TestInstance2));
-        //起始时间的跨步预测
 
         startTime_And_EndTime[0] = (long) Predicted_startTime;
         //++++++++++++++++++++前面预测++++++下一个查询涉及的起始时间++++++++++++++++++
@@ -298,8 +289,34 @@ public class MLQueryAnalyzerYaos {
         double Predicted_endTime = model_EndTime.classifyInstance(EndTime_lastInstance);
         System.out.println("预测结果，endtime：" + Predicted_endTime);
         //结束时间的跨步预测
-
         startTime_And_EndTime[1] = (long) Predicted_endTime;
+
+        //++++++++++++++++++++多步预测++++++再向后面去预测一步查询可能涉及的文件++++++++++++++++++
+        double[] newArray_filledWithTarget = new double[ArrtSize];//这里填入target标签的长度，整个样本的长度已经
+        Instance StartTime_last1 = TranningData.instance(TranningData.size() - 2);
+        //我们用StartTime_lastInstance和StartTime_last1，以及预测的结果，组成新的样本，再预测一组出来，手动填充样本数据
+
+        newArray_filledWithTarget[0] = StartTime_lastInstance.value(0) + 1;//序号 +1
+
+        newArray_filledWithTarget[1] = StartTime_lastInstance.value(4);
+        newArray_filledWithTarget[2] = StartTime_lastInstance.value(5);
+        newArray_filledWithTarget[3] = StartTime_lastInstance.value(6);
+
+        newArray_filledWithTarget[4] = StartTime_lastInstance.value(7);
+        newArray_filledWithTarget[5] = StartTime_lastInstance.value(8);
+        newArray_filledWithTarget[6] = StartTime_lastInstance.value(9);
+
+        newArray_filledWithTarget[7] = Predicted_startTime;//最后一组填写预测值
+        newArray_filledWithTarget[8] = Predicted_endTime;
+        newArray_filledWithTarget[9] = (StartTime_lastInstance.value(6) + StartTime_lastInstance.value(9)) / 2;
+
+        newArray_filledWithTarget[10] = 0;
+        TranningData.add(new DenseInstance(1.0, newArray_filledWithTarget));
+
+        Instance nextStpeInstance = TranningData.lastInstance();
+        double next1Start = model_StartTime.classifyInstance(nextStpeInstance);
+        double next1End = model_EndTime.classifyInstance(nextStpeInstance);
+
         QuerySegmentFeatures.clear();//这个列表的清空，也会导致QueryMonitor中的元素清空
         return startTime_And_EndTime;
     }

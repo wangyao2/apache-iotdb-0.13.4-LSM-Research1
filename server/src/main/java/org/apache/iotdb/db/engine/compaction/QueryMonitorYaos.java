@@ -80,7 +80,7 @@ public class QueryMonitorYaos {
     public void analyzeTheQueryFeature() {
         LOGGER.info("查询监视器：尝试提取序列的查询特征...");
 
-        if (QueryQRList.size() < 50) {
+        if (QueryQRList.size() < 100) {
             LOGGER.info("查询监视器：没有足够需要被分析的数据,或者搜集的查询数量过少！收集的数量为：" + QueryQRList.size());
             return;
         }
@@ -179,7 +179,7 @@ public class QueryMonitorYaos {
     private void GROUP_SIZE_Dynamic() {
         int lastGroupSize = GROUP_SIZE;//先记录下来上一个组选用的多少
 
-        GROUP_SIZE = 4;
+        GROUP_SIZE = 10;
     }
 
     /**
@@ -230,8 +230,8 @@ public class QueryMonitorYaos {
         QueryFeaturesMeanShiftList.add(new FeatureofOneQuery((long) centroid[0],(long) centroid[1],(long) centroid[2]));
 
         System.out.println("质心法求解结果：" + "↓↓↓↓");
-        long Clustered_Startime = QueryFeaturesMeanShiftList.get(0).getStartTime();
-        long Cluster_queryTimeEnd = QueryFeaturesMeanShiftList.get(0).getEndTime();
+        long Clustered_Startime = QueryFeaturesMeanShiftList.get(1).getStartTime();
+        long Cluster_queryTimeEnd = QueryFeaturesMeanShiftList.get(1).getEndTime();
         System.out.println(dateFormat.format(new Date((long) Clustered_Startime)));
         System.out.println(dateFormat.format(new Date((long) Cluster_queryTimeEnd)));
         System.out.println("质心法求解结果：" + "↑↑↑↑");

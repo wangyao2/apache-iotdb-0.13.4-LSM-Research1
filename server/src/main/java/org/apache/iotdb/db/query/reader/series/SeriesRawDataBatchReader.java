@@ -178,6 +178,7 @@ public class SeriesRawDataBatchReader implements ManagedSeriesReader {
   private boolean readPageData() throws IOException {
     while (seriesReader.hasNextPage()) {
       batchData = seriesReader.nextPage();
+      //System.out.println("readPageData中读取的行数，SeriesRawDataBathcRaeader:" + batchData.getCount());
       if (!isEmpty(batchData)) {
         return true;
       }

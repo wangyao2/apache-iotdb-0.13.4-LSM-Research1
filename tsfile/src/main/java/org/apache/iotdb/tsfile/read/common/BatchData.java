@@ -73,6 +73,10 @@ public class BatchData {
   // inner array index for write
   protected int writeCurArrayIndex;
 
+  public int getCount() {
+    return count;
+  }
+
   // the insert timestamp number of timeRet
   protected int count;
 

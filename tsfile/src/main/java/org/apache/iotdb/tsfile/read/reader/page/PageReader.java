@@ -105,9 +105,11 @@ public class PageReader implements IPageReader {
   @Override
   public BatchData getAllSatisfiedPageData(boolean ascending) throws IOException {
     BatchData pageData = BatchDataFactory.createBatchData(dataType, ascending, false);
+    int RAIndictor = 0;
     if (filter == null || filter.satisfy(getStatistics())) {
       while (timeDecoder.hasNext(timeBuffer)) {
         long timestamp = timeDecoder.readLong(timeBuffer);
+        RAIndictor++;
         switch (dataType) {
           case BOOLEAN:
             boolean aBoolean = valueDecoder.readBoolean(valueBuffer);
@@ -150,6 +152,9 @@ public class PageReader implements IPageReader {
         }
       }
     }
+    int ReadedpageDataCount = pageData.getCount();
+    System.out.println("PageReader类里，返回之前读取的点数：" + ReadedpageDataCount
+            + " ，当前PagerReader总共处理的行数:" + RAIndictor + " ，读点数放大比例： " + (double)RAIndictor / (double)ReadedpageDataCount);
     return pageData.flip();
   }
 

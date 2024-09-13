@@ -134,7 +134,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
             try {//处理训练模型时发生的异常
                 //predictedStartimeAndEndTime = MLAnalyzer.TranningAndPredict();//预测即将会被访问到的数据，单步预测
                 //todo 关闭预测算法，使用传统策略，注释掉预测分析下面这一行，这样会采用默认的策略
-                predictedStartimeAndEndTime = MLAnalyzer.TranningAndPredictWithMoreStepAndFeatures();//预测即将会被访问到的数据
+                //predictedStartimeAndEndTime = MLAnalyzer.TranningAndPredictWithMoreStepAndFeatures();//预测即将会被访问到的数据
                 //ClusteredStartimeAndEndTime = MLAnalyzer.ClusteringTheCurrentQueryRrange();//汇总当前被访问到的数据，已经改掉了，现在是借助查询分析器去找负载中心
 
                 predited_Startime = predictedStartimeAndEndTime[0];
@@ -193,10 +193,10 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                             System.out.println(theSelectedFile.getTsFile().getName());
                         }
                         //todo 传统的选择策略
-                        //createAndSubmitTask(theSelectedFiles);//传统策略控制提交
+                        createAndSubmitTask(theSelectedFiles);//传统策略控制提交
                     }
                     break;//用来避免死循环，记得把这里删掉，在正常运行时
-                    //System.out.println(taskPriorityQueue.poll().left);
+                     //System.out.println(taskPriorityQueue.poll().left);
                     //createAndSubmitTask(taskPriorityQueue.poll().left); //如果有待合并的文件，那么就就提交这个任务
                 }
             } catch (Exception e) {
@@ -244,7 +244,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                             System.out.println(theSelectedFile.getTsFile().getName());
                         }
                         //todo 预测查询样式的选择策略
-                        createAndSubmitTask(theSelectedFiles);//我的预测方法控制提交
+                        //createAndSubmitTask(theSelectedFiles);//我的预测方法控制提交
                     }
                     break;
                     //即使选择出来了文件，但是先不进行合并任务提交，先阻塞
@@ -278,7 +278,8 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
         }
 
         if (ft3 >= ct1 && ft3 <= ct2 && ft4 >= ct2){//普通的交集情况
-            queryTimeStart = ct1;
+            //todo 普通交集的处理策略有待改进，会导致人工样本集错误的把1号文件合并进来
+            queryTimeStart = ft3;
             queryTimeEnd = ft4;
             queryTimeInterval = queryTimeEnd - queryTimeStart;
 
@@ -325,7 +326,9 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
      *                          each batch
      * @return return whether to continue the search to higher levels
      * @throws IOException
-     * 实验中的默认方法，进行批次选择和并提交
+     * 实验中的默认方法，进行批次选择和并提交，这默认的方法就是sizetierd
+     *     which merges all SSTables as one to the next level each time one level is full.
+     *     This scheme is the default compaction scheme in Cassandra.
      */
     private boolean selectLevelTask(
             int level, PriorityQueue<Pair<List<TsFileResource>, Long>> taskPriorityQueue)
@@ -350,7 +353,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
             //LOGGER.debug("Add tsfile {}", currentFile);
             // if the file size or file num reach threshold，判断临时队列的数量或者存储空间的大小
             if (selectedFileSize >= targetCompactionFileSize
-                    || selectedFileList.size() >= config.getMaxInnerCompactionCandidateFileNum()) { //合并时候候选文件的数量如果为3，那么就合并，原本是30个合并
+                    || selectedFileList.size() >= config.getMaxInnerCompactionCandidateFileNum()) { //合并时候候选文件的数量如果为10，那么就合并，原本是30个合并
                 // submit the task
                 if (selectedFileList.size() > 1) {//满足刷写条件之后，就封装这一批文件到任务队列中
                     taskPriorityQueue.add(new Pair<>(new ArrayList<>(selectedFileList), selectedFileSize));
@@ -358,6 +361,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                 selectedFileList = new ArrayList<>();//然后清空临时队列，继续检测当前层级的其他文件是否仍然满足条件，直到遍历完所有的文件一遍
                 selectedFileSize = 0L;
                 shouldContinueToSearch = false;
+                //return shouldContinueToSearch;//限制提交合并的次数，模拟合并速率不适配的状态
             }
         }
         return shouldContinueToSearch;
@@ -369,14 +373,14 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
     which merges all SSTables as one to the next level each time one level is full.
     This scheme is the default compaction scheme in Cassandra.
     */
-    private boolean selectLevelTask_SizeTiredLevel(
+    private boolean selectLevelTask_RoundOldTimeLevel(
             int level, PriorityQueue<Pair<List<TsFileResource>, Long>> taskPriorityQueue)
             throws IOException {
         boolean shouldContinueToSearch = true;
         List<TsFileResource> selectedFileList = new ArrayList<>();
         long selectedFileSize = 0L;
         long targetCompactionFileSize = config.getTargetCompactionFileSize(); // 1GB的字节
-        LOGGER.debug("正在实验对比算法,SizeTired...");
+        LOGGER.debug("正在实验对比算法,RoundOldTime...");
         for (TsFileResource currentFile : tsFileResources) {//在这里就被封装成多个批次了
             TsFileNameGenerator.TsFileName currentName = //把文件名进行解析成时间戳-版本-合并次数-跨空间次数的格式
                     TsFileNameGenerator.getTsFileName(currentFile.getTsFile().getName());
@@ -386,12 +390,13 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                 selectedFileSize += currentFile.getTsFileSize();
                 //LOGGER.debug("Add tsfile {}", currentFile);
             }
-        }
-        LOGGER.debug("Add tsfile number {}", selectedFileList.size());
-        // 提交任务要拿到后面，本层所有文件被检索完毕后，检查本层文件数量，如果有5个及以上，满足数量限制条件，刷写本层文件
-        if (selectedFileList.size() > 5) {//满足刷写条件之后，就封装这一批文件到任务队列中
-            taskPriorityQueue.add(new Pair<>(new ArrayList<>(selectedFileList), selectedFileSize));
-            shouldContinueToSearch = false;
+            // 提交任务要拿到后面，本层所有文件被检索完毕后，检查本层文件数量，如果有5个及以上，满足数量限制条件，刷写本层文件
+            if (selectedFileList.size() > 15) {//满足刷写条件之后，就封装这一批文件到任务队列中
+                LOGGER.debug("Add tsfile number {}", selectedFileList.size());
+                taskPriorityQueue.add(new Pair<>(new ArrayList<>(selectedFileList), selectedFileSize));
+                shouldContinueToSearch = false;
+                return shouldContinueToSearch;
+            }
         }
         return shouldContinueToSearch;
     }
@@ -634,15 +639,15 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
         for (int i = 0; i < tsFileResources.size(); i++) {//顺序获取待合并的资源文件
             //遍历每一个资源文件，看下标的开始索引，是从最后一个开始遍历，默认情况下是先遍历距离当前时间最新的文件
             TsFileResource tsFileResource = tsFileResources.get(i);
-//            TsFileNameGenerator.TsFileName currentName = //把文件名进行解析成时间戳-版本-合并次数-跨空间次数的格式，判断是否处于当前层级
-//                    TsFileNameGenerator.getTsFileName(tsFileResource.getTsFile().getName());
-//            if (currentName.getInnerCompactionCnt() != templevel //如果遍历的时候，跟当前处理的层级不一致，那么就跳过这个文件
-//                    || tsFileResource.getStatus() != TsFileResourceStatus.CLOSED) { //或者文件不是关闭状态，就跳过
-//                continue;
-//            }//暂时移除对文件层的限制
-            if (tsFileResource.getStatus() != TsFileResourceStatus.CLOSED) { //或者文件不是关闭状态，就跳过
+            TsFileNameGenerator.TsFileName currentName = //把文件名进行解析成时间戳-版本-合并次数-跨空间次数的格式，判断是否处于当前层级
+                    TsFileNameGenerator.getTsFileName(tsFileResource.getTsFile().getName());
+            if (currentName.getInnerCompactionCnt() != templevel //如果遍历的时候，跟当前处理的层级不一致，那么就跳过这个文件
+                    || tsFileResource.getStatus() != TsFileResourceStatus.CLOSED) { //或者文件不是关闭状态，就跳过
                 continue;
-            }
+            }//暂时移除对文件层的限制
+//            if (tsFileResource.getStatus() != TsFileResourceStatus.CLOSED) { //或者文件不是关闭状态，就跳过
+//                continue;
+//            }
             Set<String> devicesNameInOneTsfie = tsFileResource.getDevices();//获得所有的设备名
             if (!devicesNameInOneTsfie.isEmpty()) {// 原方法tsFileResource.getDeviceToIndexMap().size() > 0
                 //寻找有重叠的文件，如果这个文件里面有内容

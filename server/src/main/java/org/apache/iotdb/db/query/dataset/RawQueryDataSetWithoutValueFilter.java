@@ -95,6 +95,7 @@ public class RawQueryDataSetWithoutValueFilter extends QueryDataSet
           // the reader has next batch
           while (reader.hasNextBatch()) { // 在这个hasNextBatch（）方法里面就去尝试读取内部是数据
             BatchData batchData = reader.nextBatch();
+            //System.out.println("batchData的行数，RawQueryDataSetWithoutValueFilter：" + batchData.getCount());
             // iterate until we get first batch data with valid value
             if (batchData.isEmpty()) {
               continue;
@@ -611,7 +612,7 @@ public class RawQueryDataSetWithoutValueFilter extends QueryDataSet
 
   protected void fillCache(int seriesIndex) throws IOException, InterruptedException { //一条一条的处理每一个序列，该方法负责从阻塞队列中取出数据，并填充缓存
     BatchData batchData = blockingQueueArray[seriesIndex].take();  // 从阻塞队列中拿数据，如果没有数据，则会阻塞等待队列中有数据
-    // no more batch data in this time series queue
+    // no more batch data in this time series queue    int batchDatacount = batchData.getCount();
     if (batchData instanceof SignalBatchData) { // 如果是一个信号 SingalBatchData，则将相应时间序列的 oMoreDataInQueue 置为 false ，信号的作用是告诉调用者后面没有更多的batch数据了
       noMoreDataInQueueArray[seriesIndex] = true;
     } else if (batchData instanceof ExceptionBatchData) { // // 当生产者线程发生异常时释放查询资源

@@ -717,7 +717,9 @@ public class SeriesReader {
       if (valueFilter != null) {
         firstPageReader.setFilter(valueFilter);
       }
+      System.out.println("处理的序列路径是:" + seriesPath + "； 阅读器的内存地址：" + Integer.toHexString(System.identityHashCode(seriesPath)));
       BatchData batchData = firstPageReader.getAllSatisfiedPageData(orderUtils.getAscending());
+      //System.out.println("SeriesReader里面打印行数： " + batchData.getCount());
       firstPageReader = null;
 
       return batchData;
