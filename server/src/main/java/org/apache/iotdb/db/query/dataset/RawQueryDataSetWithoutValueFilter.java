@@ -63,7 +63,8 @@ public class RawQueryDataSetWithoutValueFilter extends QueryDataSet
     private int[] batchDataLengthList;
     private final int seriesIndex;
     private final int fetchLimit;
-
+    //自定义一个list属性，记录查询过程中的读放大
+    private double[] RARecorder;
     public ReadTask(
         ManagedSeriesReader reader,
         BlockingQueue<BatchData> blockingQueue,
@@ -135,6 +136,8 @@ public class RawQueryDataSetWithoutValueFilter extends QueryDataSet
           reader.setHasRemaining(false);
           // remove itself from the QueryTaskPoolManager
           reader.setManagedByQueryManager(false);
+          //这个线程处理完毕之后，写入到一个记录器中，把这一个线程产生的读放大全都记录下来，并由一个总记录器托管
+
         }
       } catch (InterruptedException e) {
         LOGGER.error("Interrupted while putting into the blocking queue: ", e);

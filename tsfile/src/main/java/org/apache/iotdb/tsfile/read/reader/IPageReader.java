@@ -32,6 +32,7 @@ public interface IPageReader {
 
   BatchData getAllSatisfiedPageData(boolean ascending) throws IOException;
 
+  //BatchData getAllSatisfiedPageData(boolean ascending, PartialPath path) throws IOException;
   Statistics getStatistics();
 
   void setFilter(Filter filter);

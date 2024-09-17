@@ -44,6 +44,8 @@ import org.apache.iotdb.tsfile.read.reader.IAlignedPageReader;
 import org.apache.iotdb.tsfile.read.reader.IPageReader;
 import org.apache.iotdb.tsfile.utils.TsPrimitiveType;
 
+import java.io.BufferedWriter;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.Serializable;
 import java.util.Comparator;
@@ -396,7 +398,20 @@ public class SeriesReader {
   protected void unpackOneTimeSeriesMetadata(ITimeSeriesMetadata timeSeriesMetadata)
       throws IOException {
     List<IChunkMetadata> chunkMetadataList =
-        FileLoaderUtils.loadChunkMetadataList(timeSeriesMetadata);
+        FileLoaderUtils.loadChunkMetadataList(timeSeriesMetadata);//这里解析出来，需要去读取的chunk数据量，在这里增加对chunk的读取放大数量
+    //在IoTDB中，IO的最小单位是Chunk，我们统计需要加载的iotdb chunk的点数，从而来评估读放大
+    long ChunkReadCount = 0;//记录需要读取多少个chunk
+    for (IChunkMetadata iChunkMetadata : chunkMetadataList) {
+      long count = iChunkMetadata.getStatistics().getCount();
+      ChunkReadCount += count;
+    }
+    String filePath = "RAoutput_CompactedFiles.csv";
+    try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath, true))) {
+      writer.write(ChunkReadCount + "\n");//把一次查询需要读取的点数，写入进去
+    } catch (IOException e) {
+      // 处理可能的异常
+      e.printStackTrace();
+    }
     chunkMetadataList.forEach(chunkMetadata -> chunkMetadata.setSeq(timeSeriesMetadata.isSeq()));
 
     // for tracing: try to calculate the number of chunk and time-value points in chunk
@@ -717,7 +732,7 @@ public class SeriesReader {
       if (valueFilter != null) {
         firstPageReader.setFilter(valueFilter);
       }
-      System.out.println("处理的序列路径是:" + seriesPath + "； 阅读器的内存地址：" + Integer.toHexString(System.identityHashCode(seriesPath)));
+      //System.out.println("处理的序列路径是:" + seriesPath + "； 阅读器的内存地址：" + Integer.toHexString(System.identityHashCode(seriesPath)));
       BatchData batchData = firstPageReader.getAllSatisfiedPageData(orderUtils.getAscending());
       //System.out.println("SeriesReader里面打印行数： " + batchData.getCount());
       firstPageReader = null;
@@ -1025,7 +1040,7 @@ public class SeriesReader {
      * find end time of the first TimeSeriesMetadata
      */
     long endTime = -1L;
-    if (!seqTimeSeriesMetadata.isEmpty() && unSeqTimeSeriesMetadata.isEmpty()) {
+    if (!seqTimeSeriesMetadata.isEmpty() && unSeqTimeSeriesMetadata.isEmpty()) {//到这里是从文件中解析出来，涉及到的chunk数据点
       // only has seq
       endTime = orderUtils.getOverlapCheckTime(seqTimeSeriesMetadata.get(0).getStatistics());
     } else if (seqTimeSeriesMetadata.isEmpty() && !unSeqTimeSeriesMetadata.isEmpty()) {

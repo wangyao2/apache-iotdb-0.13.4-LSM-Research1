@@ -18,6 +18,7 @@
  */
 package org.apache.iotdb.tsfile.read.reader.page;
 
+import org.apache.iotdb.tsfile.ReadAmpRecorder;
 import org.apache.iotdb.tsfile.encoding.decoder.Decoder;
 import org.apache.iotdb.tsfile.exception.write.UnSupportedDataTypeException;
 import org.apache.iotdb.tsfile.file.header.PageHeader;
@@ -32,7 +33,7 @@ import org.apache.iotdb.tsfile.read.reader.IPageReader;
 import org.apache.iotdb.tsfile.utils.Binary;
 import org.apache.iotdb.tsfile.utils.ReadWriteForEncodingUtils;
 
-import java.io.IOException;
+import java.io.*;
 import java.nio.ByteBuffer;
 import java.util.List;
 
@@ -152,9 +153,25 @@ public class PageReader implements IPageReader {
         }
       }
     }
-    int ReadedpageDataCount = pageData.getCount();
-    System.out.println("PageReader类里，返回之前读取的点数：" + ReadedpageDataCount
-            + " ，当前PagerReader总共处理的行数:" + RAIndictor + " ，读点数放大比例： " + (double)RAIndictor / (double)ReadedpageDataCount);
+    int NeedpageDataCount = pageData.getCount();
+    //ReadAmpRecorder RArecorder = ReadAmpRecorder.getInstance();//注意，这里额外引入了一个maven依赖到server包中，可以参见git提交记录
+    //RArecorder.RecordOneSeries(NeedpageDataCount, RAIndictor);
+// 指定要写入的文件路径
+    String filePath = "RAoutput_CompactedFiles.csv";
+    // 使用try-with-resources语句自动关闭资源
+    try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath, true))) {
+      // 将文本写入文件，true表示追加模式
+//      writer.write("PageReader类里，需要被返回的行数：" + NeedpageDataCount
+//              + " ，实际读取的行数:" + RAIndictor + " ，读点数放大比例： " + (double)RAIndictor / (double)NeedpageDataCount);
+      writer.write(NeedpageDataCount + "," + RAIndictor + "\n");
+//      System.out.println("PageReader类里，需要被返回的行数：" + NeedpageDataCount
+//              + " ，实际读取的行数:" + RAIndictor + " ，读点数放大比例： " + (double)RAIndictor / (double)NeedpageDataCount);
+      // 添加换行符，以便于每次写入的内容不会在同一行
+      //writer.newLine();
+    } catch (IOException e) {
+      // 处理可能的异常
+      e.printStackTrace();
+    }
     return pageData.flip();
   }
 
