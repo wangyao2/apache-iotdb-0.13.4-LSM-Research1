@@ -332,7 +332,7 @@ public class IoTDBConfig {
   private long seqTsFileSize = 0L;
 
   /** When a memTable's size (in byte) exceeds this, the memtable is flushed to disk. Unit: byte ，默认是1024MB刷写一个*/
-  private long memtableSizeThreshold = 1 * 1024 * 1024L;
+  private long memtableSizeThreshold = 5 * 1024 * 1024L;
 
   /** Whether to timed flush sequence tsfiles' memtables. */
   private boolean enableTimedFlushSeqMemtable = false;
@@ -374,7 +374,7 @@ public class IoTDBConfig {
   private int avgSeriesPointNumberThreshold = 100000;
 
   /** Enable inner space copaction for sequence files */
-  private boolean enableSeqSpaceCompaction = false;
+  private boolean enableSeqSpaceCompaction = true;
 
   /** Enable inner space copaction for unsequence files */
   private boolean enableUnseqSpaceCompaction = false;
@@ -434,7 +434,7 @@ public class IoTDBConfig {
   private long compactionAcquireWriteLockTimeout = 60_000L;
 
   /** The max candidate file num in inner space compaction */
-  private int maxInnerCompactionCandidateFileNum = 10;
+  private int maxInnerCompactionCandidateFileNum = 20;
 
   /** The max candidate file num in cross space compaction */
   private int maxCrossCompactionCandidateFileNum = 1000;

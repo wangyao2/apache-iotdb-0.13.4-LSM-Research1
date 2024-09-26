@@ -80,7 +80,7 @@ public class QueryMonitorYaos {
     public void analyzeTheQueryFeature() {
         LOGGER.info("查询监视器：尝试提取序列的查询特征...");
 
-        if (QueryQRList.size() < 100) {
+        if (QueryQRList.size() < 50) {
             LOGGER.info("查询监视器：没有足够需要被分析的数据,或者搜集的查询数量过少！收集的数量为：" + QueryQRList.size());
             return;
         }
@@ -177,9 +177,31 @@ public class QueryMonitorYaos {
      * 在这个方法内，我们会调整GROUP_SIZE的大小，并不返回变量，但是
      */
     private void GROUP_SIZE_Dynamic() {
-        int lastGroupSize = GROUP_SIZE;//先记录下来上一个组选用的多少
+        int lastGroupSize = GROUP_SIZE;//先记录下来上一个组选用的多少，当前时间默认是15
+        int collectedQSize = QueryFeaturesList.size();
+        int GROUP_SIZE_Expandthreshold = 40;
 
-        GROUP_SIZE = 10;
+        GROUP_SIZE = 2;
+        boolean TiaozhengFlag = true;
+
+        while (true){
+            if (collectedQSize > 2 * GROUP_SIZE_Expandthreshold){//只有超过阈值的时候才做放大处理，数据量不够就按照满足最小点数去处理
+                GROUP_SIZE_Expandthreshold *= 2;
+                GROUP_SIZE = (int)(lastGroupSize * 1.2);
+                //TiaozhengFlag = false;//如果本轮次放大调整，那么就不做
+            }else {
+                break;
+            }
+        }
+//
+//        while (TiaozhengFlag){
+//            if (collectedQSize < 2 * GROUP_SIZE_Expandthreshold){
+//                GROUP_SIZE_Expandthreshold /= 2;
+//                GROUP_SIZE = (int)(lastGroupSize / 1.2);
+//            }else {
+//                break;
+//            }
+//        }
     }
 
     /**

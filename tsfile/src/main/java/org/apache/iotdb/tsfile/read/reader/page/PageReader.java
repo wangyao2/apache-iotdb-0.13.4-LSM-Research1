@@ -110,7 +110,7 @@ public class PageReader implements IPageReader {
     if (filter == null || filter.satisfy(getStatistics())) {
       while (timeDecoder.hasNext(timeBuffer)) {
         long timestamp = timeDecoder.readLong(timeBuffer);
-        RAIndictor++;
+        //RAIndictor++;//对于读放大的在chunk解析的部分做了记录，见seriesReader
         switch (dataType) {
           case BOOLEAN:
             boolean aBoolean = valueDecoder.readBoolean(valueBuffer);
@@ -153,25 +153,10 @@ public class PageReader implements IPageReader {
         }
       }
     }
-    int NeedpageDataCount = pageData.getCount();
+    //int NeedpageDataCount = pageData.getCount();
     //ReadAmpRecorder RArecorder = ReadAmpRecorder.getInstance();//注意，这里额外引入了一个maven依赖到server包中，可以参见git提交记录
     //RArecorder.RecordOneSeries(NeedpageDataCount, RAIndictor);
 // 指定要写入的文件路径
-    String filePath = "RAoutput_CompactedFiles.csv";
-    // 使用try-with-resources语句自动关闭资源
-    try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath, true))) {
-      // 将文本写入文件，true表示追加模式
-//      writer.write("PageReader类里，需要被返回的行数：" + NeedpageDataCount
-//              + " ，实际读取的行数:" + RAIndictor + " ，读点数放大比例： " + (double)RAIndictor / (double)NeedpageDataCount);
-      writer.write(NeedpageDataCount + "," + RAIndictor + "\n");
-//      System.out.println("PageReader类里，需要被返回的行数：" + NeedpageDataCount
-//              + " ，实际读取的行数:" + RAIndictor + " ，读点数放大比例： " + (double)RAIndictor / (double)NeedpageDataCount);
-      // 添加换行符，以便于每次写入的内容不会在同一行
-      //writer.newLine();
-    } catch (IOException e) {
-      // 处理可能的异常
-      e.printStackTrace();
-    }
     return pageData.flip();
   }
 

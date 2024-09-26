@@ -177,7 +177,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                 int maxLevel = searchMaxFileLevel();
                 for (int currentLevel = 0; currentLevel <= maxLevel; currentLevel++) {
                     if (!selectLevelTask(currentLevel, taskPriorityQueue)) {
-                    //if (!selectLevelTask_SizeTiredLevel(currentLevel, taskPriorityQueue)) {
+                    //if (!selectLevelTask_RoundOldTimeLevel(currentLevel, taskPriorityQueue)) {
                     //if (!selectLevelTask_byYaos_V1(currentLevel, taskPriorityQueue)) {
                         //如果在一层中找到了一批可以合并的文件，那么就终止，不再判断其他层级了
                         break; //这里面包含了核心的执行选择合并任务的逻辑
@@ -337,7 +337,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
         List<TsFileResource> selectedFileList = new ArrayList<>();
         long selectedFileSize = 0L;
         long targetCompactionFileSize = config.getTargetCompactionFileSize(); // 1GB的字节
-
+        int selectFilesRuns = 0;//模拟一次合并的触发时，并不是全部文件被参与合并
         for (TsFileResource currentFile : tsFileResources) {//在这里就被封装成多个批次了
             TsFileNameGenerator.TsFileName currentName = //把文件名进行解析成时间戳-版本-合并次数-跨空间次数的格式
                     TsFileNameGenerator.getTsFileName(currentFile.getTsFile().getName());
@@ -361,6 +361,10 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                 selectedFileList = new ArrayList<>();//然后清空临时队列，继续检测当前层级的其他文件是否仍然满足条件，直到遍历完所有的文件一遍
                 selectedFileSize = 0L;
                 shouldContinueToSearch = false;
+                selectFilesRuns ++;
+                if (selectFilesRuns >= 3){
+                    return shouldContinueToSearch;//限制提交合并的次数，模拟合并速率不适配的状态
+                }
                 //return shouldContinueToSearch;//限制提交合并的次数，模拟合并速率不适配的状态
             }
         }
@@ -381,6 +385,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
         long selectedFileSize = 0L;
         long targetCompactionFileSize = config.getTargetCompactionFileSize(); // 1GB的字节
         LOGGER.debug("正在实验对比算法,RoundOldTime...");
+        int CandidateFilessize = tsFileResources.size() / 5;
         for (TsFileResource currentFile : tsFileResources) {//在这里就被封装成多个批次了
             TsFileNameGenerator.TsFileName currentName = //把文件名进行解析成时间戳-版本-合并次数-跨空间次数的格式
                     TsFileNameGenerator.getTsFileName(currentFile.getTsFile().getName());
@@ -391,7 +396,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                 //LOGGER.debug("Add tsfile {}", currentFile);
             }
             // 提交任务要拿到后面，本层所有文件被检索完毕后，检查本层文件数量，如果有5个及以上，满足数量限制条件，刷写本层文件
-            if (selectedFileList.size() > 15) {//满足刷写条件之后，就封装这一批文件到任务队列中
+            if (selectedFileList.size() > CandidateFilessize) {//满足刷写条件之后，就封装这一批文件到任务队列中
                 LOGGER.debug("Add tsfile number {}", selectedFileList.size());
                 taskPriorityQueue.add(new Pair<>(new ArrayList<>(selectedFileList), selectedFileSize));
                 shouldContinueToSearch = false;
