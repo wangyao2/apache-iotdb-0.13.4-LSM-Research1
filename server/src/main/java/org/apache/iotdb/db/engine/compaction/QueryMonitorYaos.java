@@ -80,7 +80,7 @@ public class QueryMonitorYaos {
     public void analyzeTheQueryFeature() {
         LOGGER.info("查询监视器：尝试提取序列的查询特征...");
 
-        if (QueryQRList.size() < 50) {
+        if (QueryQRList.size() < 100) {
             LOGGER.info("查询监视器：没有足够需要被分析的数据,或者搜集的查询数量过少！收集的数量为：" + QueryQRList.size());
             return;
         }
@@ -179,9 +179,9 @@ public class QueryMonitorYaos {
     private void GROUP_SIZE_Dynamic() {
         int lastGroupSize = GROUP_SIZE;//先记录下来上一个组选用的多少，当前时间默认是15
         int collectedQSize = QueryFeaturesList.size();
-        int GROUP_SIZE_Expandthreshold = 40;
+        int GROUP_SIZE_Expandthreshold = 140;
 
-        GROUP_SIZE = 2;
+        GROUP_SIZE = 15;
         boolean TiaozhengFlag = true;
 
         while (true){

@@ -434,7 +434,7 @@ public class IoTDBConfig {
   private long compactionAcquireWriteLockTimeout = 60_000L;
 
   /** The max candidate file num in inner space compaction */
-  private int maxInnerCompactionCandidateFileNum = 20;
+  private int maxInnerCompactionCandidateFileNum = 15;
 
   /** The max candidate file num in cross space compaction */
   private int maxCrossCompactionCandidateFileNum = 1000;

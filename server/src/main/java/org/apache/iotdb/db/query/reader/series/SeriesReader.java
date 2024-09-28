@@ -407,13 +407,13 @@ public class SeriesReader {
     }
 
      //下面这几行，增加了需要加载的chunk的数量，测试读取测试时需要注销掉，以免这里的记录影响原本的IO速率
-    String filePath = "RAoutput_DTDG_RoundOldTime_1_3MBWithRes.csv";
-    try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath, true))) {
-      writer.write(ChunkReadCount + "\n");//把一次查询需要读取的点数，写入进去
-    } catch (IOException e) {
-      // 处理可能的异常
-      e.printStackTrace();
-    }
+//    String filePath = "RAoutput_DTDG_RoundOldTime_1_3MBWithRes.csv";
+//    try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath, true))) {
+//      writer.write(ChunkReadCount + "\n");//把一次查询需要读取的点数，写入进去
+//    } catch (IOException e) {
+//      // 处理可能的异常
+//      e.printStackTrace();
+//    }
 
     chunkMetadataList.forEach(chunkMetadata -> chunkMetadata.setSeq(timeSeriesMetadata.isSeq()));
 
