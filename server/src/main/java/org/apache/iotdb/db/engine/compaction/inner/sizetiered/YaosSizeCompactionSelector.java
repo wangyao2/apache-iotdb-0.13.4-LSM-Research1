@@ -65,6 +65,9 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
     private long queryTimeStart= 1706716805000L;//2024-02-01 00:00:05 的 long类型时间戳
     private long queryTimeEnd= 1706716805000L;//2024-02-01 00:00:05 的 long类型时间戳
     private long queryTimeInterval = 604800000L;//86400000 * 7 = 604800000
+
+    private int RoundOldTimeCandidateFilessize = 0;//这几行配合刷写测试
+
     //这个参数在zhanglingzhe的代码中单独作为一个静态参数，据说是根据python分析的结果反写回来的
 
     public YaosSizeCompactionSelector(
@@ -362,9 +365,9 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                 selectedFileSize = 0L;
                 shouldContinueToSearch = false;
                 selectFilesRuns ++;
-//                if (selectFilesRuns >= 3){
-//                    return shouldContinueToSearch;//限制提交合并的次数，模拟合并速率不适配的状态
-//                }
+                if (selectFilesRuns >= 3){
+                    return shouldContinueToSearch;//限制提交合并的次数，模拟合并速率不适配的状态。这个设定在DTDG数据集上使用，因为并非是刷写和读的同时测试，避免一次把所有文件全提交
+                }
                 //return shouldContinueToSearch;//限制提交合并的次数，模拟合并速率不适配的状态
             }
         }
@@ -385,8 +388,17 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
         long selectedFileSize = 0L;
         long targetCompactionFileSize = config.getTargetCompactionFileSize(); // 1GB的字节
         LOGGER.debug("正在实验对比算法,RoundOldTime...");
-        int CandidateFilessize = 15;
-        //int CandidateFilessize = tsFileResources.size() / 5;
+
+        //int CandidateFilessize = 100;//固定参数15是用于人工数据集的合并，因为人工数据集1的文件数量平均下来是比较少的。重新测试DUDG数据集的时候，我们也尝试用固定数量文件，设定为30
+        TsFileResource finalResource = tsFileResources.get(tsFileResources.size() - 1);
+        TsFileNameGenerator.TsFileName FINALcurrentName = //把文件名进行解析成时间戳-版本-合并次数-跨空间次数的格式
+                TsFileNameGenerator.getTsFileName(finalResource.getTsFile().getName());
+        long finaLcurrentNameVersion = FINALcurrentName.getVersion();
+        int CandidateFilessize = 30;
+
+//        if (RoundOldTimeCandidateFilessize == 0){//如果没有被设置过，那么我们才进行设置，已经调整为了全局变量，只有DTDG盾构机的使用，启用对照组的数量调定
+//            RoundOldTimeCandidateFilessize = tsFileResources.size() / 5;//这个参数是测试文件变化和查询速率影响使用
+//        }
 
         for (TsFileResource currentFile : tsFileResources) {//在这里就被封装成多个批次了
             TsFileNameGenerator.TsFileName currentName = //把文件名进行解析成时间戳-版本-合并次数-跨空间次数的格式
