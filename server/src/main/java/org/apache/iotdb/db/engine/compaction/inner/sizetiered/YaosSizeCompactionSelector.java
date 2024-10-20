@@ -96,6 +96,8 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
      */
     @Override
     public void selectAndSubmit() {
+        // 记录程序的开始时间
+        long CodestartTime = System.currentTimeMillis();
         PriorityQueue<Pair<List<TsFileResource>, Long>> taskPriorityQueue = //被选中的文件都存在taskPriorityQueue队列里面了
                 new PriorityQueue<>(new SizeTieredCompactionTaskComparator());
         //在文件选择的时候，就不再去分析查询特征了，而是直接调用分析器解析出结果
@@ -258,6 +260,9 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                 LOGGER.error("Exception occurs while selecting files", e);
             }
         }
+        long CodeEndtTime = System.currentTimeMillis();
+        System.out.println("2文件选择算法耗时，程序的运行时间是: ");//在做实验时间记录的时候，为了只记录代码的计算时间，不做合并相关的操作，暂时注释掉合并任务的提交
+        System.out.println(CodeEndtTime - CodestartTime);
     }
 
     /**
@@ -394,7 +399,8 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
         TsFileNameGenerator.TsFileName FINALcurrentName = //把文件名进行解析成时间戳-版本-合并次数-跨空间次数的格式
                 TsFileNameGenerator.getTsFileName(finalResource.getTsFile().getName());
         long finaLcurrentNameVersion = FINALcurrentName.getVersion();
-        int CandidateFilessize = 30;
+        //int CandidateFilessize = 15;//人工集
+        int CandidateFilessize = 30; //DTDG
 
 //        if (RoundOldTimeCandidateFilessize == 0){//如果没有被设置过，那么我们才进行设置，已经调整为了全局变量，只有DTDG盾构机的使用，启用对照组的数量调定
 //            RoundOldTimeCandidateFilessize = tsFileResources.size() / 5;//这个参数是测试文件变化和查询速率影响使用
