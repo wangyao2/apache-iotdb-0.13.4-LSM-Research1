@@ -40,10 +40,13 @@ public class QueryMonitorYaos {
     private static ArrayList<QueryContext> ContextCTList = new ArrayList<>();//每一个新到达的query都添加进来作为备用
 
     private static ArrayList<FeatureofOneQuery> QueryFeaturesList = new ArrayList<>();//记录每一个范围查询的查询间隔
+    private static ArrayList<FeatureofOneQuery> CollectedueryFeaturesList = new ArrayList<>();//记录已经收集到的历史查询
+    private static ArrayList<QueryContext> CollectedueryContextList = new ArrayList<>();//记录已经收集到的历史查询
+
     private static ArrayList<FeatureofGroupQuery> QueryFeaturesGloablList = new ArrayList<>();//记录一批查询结果的几个特征
 
     private static ArrayList<FeatureofOneQuery> QueryFeaturesMeanShiftList = new ArrayList<>();//用于对比实验的MeanShift的特征统计，还有质心法的特征统计
-    private static int GROUP_SIZE = 15;//一个分段内收集查询数量的多少
+    private static int GROUP_SIZE = 10;//一个分段内收集查询数量的多少
     //private static ArrayList<Long> QueryInterval = new ArrayList<>();//记录每一个范围查询的查询间隔
     //private static ArrayList<Long> QueryStartTime = new ArrayList<>();//记录每一个范围查询的查询开始时间
 
@@ -66,6 +69,7 @@ public class QueryMonitorYaos {
         if(queryPlan != null && context != null){//确保两个都不为空对象，才执行插入
             QueryQRList.add(queryPlan);
             ContextCTList.add(context);//暂时使用不到；现在启用，用来收集查询的开始时间
+            CollectedueryContextList.add(context);//持久保存，不删除，长久地把历史查询保存起来
         }
         QueryRWlock.writeLock().unlock();
 
@@ -88,6 +92,8 @@ public class QueryMonitorYaos {
         LOGGER.info("查询监视器：收集了足够需要被分析的数据，收集的数量为：" + QueryQRList.size());
         QueryFeaturesList.clear();//分析完一批之后，就清空里面的内容
         QueryFeaturesGloablList.clear();
+        ArrayList<FeatureofOneQuery> NewQueryFeaturesList = new ArrayList<>();//配合实现持久保存历史查询样式，记录一个合并间隙内的全部查询
+
         //ContextCTList.clear();//分析完一批之后，就清空里面的内容
         QueryRWlock.readLock().lock();
         for (QueryPlan queryPlan : QueryQRList) {//这个链表是按照查询负载的到达顺序存储的，过滤到非范围查询
@@ -99,6 +105,7 @@ public class QueryMonitorYaos {
                 Pair<String, String> leftAndRightTime = new Pair<>(String.valueOf(groupByTimePlan.getStartTime()), String.valueOf(groupByTimePlan.getEndTime()));
                 FeatureofOneQuery featureofOneQuery = CalculatedIntervalAndStartTime(leftAndRightTime.right, leftAndRightTime.left);
                 QueryFeaturesList.add(featureofOneQuery);
+                NewQueryFeaturesList.add(featureofOneQuery);
             } else if (queryPlan instanceof AggregationPlan) {
                 //todo Q4 带时间范围的，聚合函数查询，select count(s3) from ... where time > and time <
                 AggregationPlan aggregationPlan = (AggregationPlan) queryPlan;
@@ -107,6 +114,7 @@ public class QueryMonitorYaos {
                     Pair<String, String> leftAndRightTime = parseAndGetTimeRange_Q2(aggregationPlan.getExpression().toString());//直接解析表达式的字符串形式获得输出
                     FeatureofOneQuery featureofOneQuery = CalculatedIntervalAndStartTime(leftAndRightTime.right, leftAndRightTime.left);
                     QueryFeaturesList.add(featureofOneQuery);
+                    NewQueryFeaturesList.add(featureofOneQuery);
                 } else {//其他的情况就是expression instanceof SingleSeriesExpression
                     try {
                         //todo Q6 值过滤，和时间过滤的，聚合函数查询，select count(s3) from ... where time > ... and time < ... and root.ln.s1 >-5
@@ -114,6 +122,7 @@ public class QueryMonitorYaos {
                         Pair<String, String> leftAndRightTime = parseAndGetTimeRange_Q6(sure_SingleSeries_filter.getFilter().toString());
                         FeatureofOneQuery featureofOneQuery = CalculatedIntervalAndStartTime(leftAndRightTime.right, leftAndRightTime.left);
                         QueryFeaturesList.add(featureofOneQuery);
+                        NewQueryFeaturesList.add(featureofOneQuery);
                     } catch (Exception e) {//如果解析Q6发生异常，那么就认为是Q5
                         //todo Q5 值过滤的聚合函数查询，select count(s3) from ... where root.ln.s1 >-5
                         System.out.println(e.getMessage());
@@ -136,11 +145,13 @@ public class QueryMonitorYaos {
                         Pair<String, String> leftAndRightTime = parseAndGetTimeRange_Q2(Maybe_And_filter.toString());//返回的是Q2范围查询的起始时间和结束时间
                         FeatureofOneQuery featureofOneQuery = CalculatedIntervalAndStartTime(leftAndRightTime.right, leftAndRightTime.left);
                         QueryFeaturesList.add(featureofOneQuery);
+                        NewQueryFeaturesList.add(featureofOneQuery);
                     } else {//对应了一元过滤算子
                         //todo Q1 类型查询，单个时间戳的查询，(手动添加)或者单边的时间范围查询 select s3 from ... where time > ..
                         Pair<String, String> leftAndRightTime = parseAndGetTimeRange_Q2(Maybe_And_filter.toString());
                         FeatureofOneQuery featureofOneQuery = CalculatedIntervalAndStartTime(leftAndRightTime.right, leftAndRightTime.left);
                         QueryFeaturesList.add(featureofOneQuery);
+                        NewQueryFeaturesList.add(featureofOneQuery);
                     }
                 } else if (expression instanceof SingleSeriesExpression) {//处理Q3类型查询
                     //todo Q3, Q10 类型查询，时间范围查询,外带值过滤查询 select s3 from ... where time > and time < and value >
@@ -148,6 +159,7 @@ public class QueryMonitorYaos {
                     Pair<String, String> leftAndRightTime = parseAndGetTimeRange_Q3(sure_SingleSeries_filter.getFilter().toString());
                     FeatureofOneQuery featureofOneQuery = CalculatedIntervalAndStartTime(leftAndRightTime.right, leftAndRightTime.left);
                     QueryFeaturesList.add(featureofOneQuery);
+                    NewQueryFeaturesList.add(featureofOneQuery);
                 }
             } else {
                 LOGGER.debug("Current queryPlan is {} which is not matched", queryPlan);
@@ -160,12 +172,14 @@ public class QueryMonitorYaos {
 //                return Long.compare(o1.getStartTime(), o2.getStartTime());
 //            }
 //        });
+        CollectedueryFeaturesList.addAll(NewQueryFeaturesList);//长久的保存用户提交的历史查询数据
         GROUP_SIZE_Dynamic();
-        ConvertTheQueryListToSegmentFeatures();//使用分析方法，把收到的查询负载解析成很多特征和标签样式
+        //ConvertTheQueryListToSegmentFeatures();//使用分析方法，把收到的查询负载解析成很多特征和标签样式
+        ConvertTheQueryListToSegmentFeatures_WithHistory();
         analyzeTheGolableFeatures_UsingMeanShift();//使用方法分析，收集负载的特征，把负载解析成几个类型的特征，存储到QueryFeaturesGloablList内
         analyzeTheGolableFeatures_UsingNormalCentroid();
         //DirectilyOutputTheQueryFeatureToCsv_asTranningSample();//把收集到的负载写入到csv文件里
-        QueryFeaturesList.clear();//分析完一批之后，就清空里面的内容
+        QueryFeaturesList.clear();//分析完一批之后，就保存起来，以便后续分析
         QueryQRList.clear();
         ContextCTList.clear();
 
@@ -175,33 +189,29 @@ public class QueryMonitorYaos {
     /**
      * 用来根据查询负载的数量去动态生成分组大小，然后再按照分组大小去
      * 在这个方法内，我们会调整GROUP_SIZE的大小，并不返回变量，但是
+     * 新增判断历史收集的查询数量过多之后，会截断一部分
      */
     private void GROUP_SIZE_Dynamic() {
+        if (CollectedueryContextList.size() > 1000){//超过了一千，那么就截断前面的部分，只保留后面最近的1000条，构建训练样本,Only Keep the newest 1000 Query in Memory
+            int startIndex = CollectedueryContextList.size() - 1000;
+            CollectedueryContextList = (ArrayList<QueryContext>) CollectedueryContextList.subList(startIndex, CollectedueryContextList.size());
+            CollectedueryFeaturesList = (ArrayList<FeatureofOneQuery>) CollectedueryFeaturesList.subList(startIndex, CollectedueryFeaturesList.size());
+        }
         int lastGroupSize = GROUP_SIZE;//先记录下来上一个组选用的多少，当前时间默认是15
         int collectedQSize = QueryFeaturesList.size();
-        int GROUP_SIZE_Expandthreshold = 140;
+        int historyCompactionAvgNwm = 140;
 
-        GROUP_SIZE = 10;
+        if (GROUP_SIZE > historyCompactionAvgNwm){
+            return;
+        }
         boolean TiaozhengFlag = true;
 
-//        while (true){
-//            if (collectedQSize > 2 * GROUP_SIZE_Expandthreshold){//只有超过阈值的时候才做放大处理，数据量不够就按照满足最小点数去处理
-//                GROUP_SIZE_Expandthreshold *= 2;
-//                GROUP_SIZE = (int)(lastGroupSize * 1.2);
-//                //TiaozhengFlag = false;//如果本轮次放大调整，那么就不做
-//            }else {
-//                break;
-//            }
-//        }
-//
-//        while (TiaozhengFlag){
-//            if (collectedQSize < 2 * GROUP_SIZE_Expandthreshold){
-//                GROUP_SIZE_Expandthreshold /= 2;
-//                GROUP_SIZE = (int)(lastGroupSize / 1.2);
-//            }else {
-//                break;
-//            }
-//        }
+        int NowAllCollectSize = CollectedueryContextList.size();
+        int LastCollectSize = CollectedueryContextList.size() - collectedQSize;
+        if (NowAllCollectSize > 1.2 * LastCollectSize){
+            GROUP_SIZE = (int) (GROUP_SIZE * 1.2);
+        }
+        //GROUP_SIZE = 10;
     }
 
     /**
@@ -223,6 +233,24 @@ public class QueryMonitorYaos {
             // 获取当前组的子列表
             ArrayList<FeatureofOneQuery> AQuerygroup = new ArrayList<>(QueryFeaturesList.subList(i, Math.min(i + groupSize, QueryFeaturesList.size())));
             ArrayList<QueryContext> AGroupContex = new ArrayList<>(ContextCTList.subList(i, Math.min(i + groupSize, ContextCTList.size())));
+            QueryFeaturesGloablList.add(new FeatureofGroupQuery(count++, AQuerygroup, AGroupContex));
+        }
+    }
+
+    /**
+     * 与前面的方法一致，不过是用全部的历史数据去划分段的大小和窗口，未完成，因为里面涉及到ContextCTList对象的处理
+     */
+    private void ConvertTheQueryListToSegmentFeatures_WithHistory() {
+
+        final int groupSize = GROUP_SIZE;//分组大小设定
+        int count = 1;
+        if (CollectedueryFeaturesList.size() == CollectedueryContextList.size()){
+            System.out.println("历史收集状态一致！");
+        }
+        for (int i = 0; i < CollectedueryFeaturesList.size(); i += groupSize) {
+            // 获取当前组的子列表
+            ArrayList<FeatureofOneQuery> AQuerygroup = new ArrayList<>(CollectedueryFeaturesList.subList(i, Math.min(i + groupSize, CollectedueryFeaturesList.size())));
+            ArrayList<QueryContext> AGroupContex = new ArrayList<>(CollectedueryContextList.subList(i, Math.min(i + groupSize, CollectedueryContextList.size())));
             QueryFeaturesGloablList.add(new FeatureofGroupQuery(count++, AQuerygroup, AGroupContex));
         }
     }

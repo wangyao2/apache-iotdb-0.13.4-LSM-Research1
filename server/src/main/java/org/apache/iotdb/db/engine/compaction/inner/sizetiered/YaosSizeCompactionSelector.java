@@ -139,7 +139,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
             try {//处理训练模型时发生的异常
                 //predictedStartimeAndEndTime = MLAnalyzer.TranningAndPredict();//预测即将会被访问到的数据，单步预测
                 //todo 关闭预测算法，使用传统策略，注释掉预测分析下面这一行，这样会采用默认的策略
-                //predictedStartimeAndEndTime = MLAnalyzer.TranningAndPredictWithMoreStepAndFeatures();//预测即将会被访问到的数据
+                predictedStartimeAndEndTime = MLAnalyzer.TranningAndPredictWithMoreStepAndFeatures();//预测即将会被访问到的数据
                 //ClusteredStartimeAndEndTime = MLAnalyzer.ClusteringTheCurrentQueryRrange();//汇总当前被访问到的数据，已经改掉了，现在是借助查询分析器去找负载中心
 
                 predited_Startime = predictedStartimeAndEndTime[0];
@@ -176,13 +176,13 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
         //计算最终的查询起始、末尾和间隔重叠分析的结果写回到全局变量里面，如果预测结果和聚类结果没有交集，那么就返回一个候选Pair
         Pair<Long, Long> CandidatelongPair = Overlapanalysis_BetweenClusterAnd(cluster_queryTimeStart, cluster_queryTimeEnd, next_queryTimeStart, next_queryTimeEnd);
         //候选列表中是聚合结果作为备选
-        if(!(next_queryTimeStart == 1706700000000L || next_queryTimeEnd == 1706700000000L)){//没有足够的查询负载，就按照原始旧方法去执行合并
+        if((next_queryTimeStart == 1706700000000L || next_queryTimeEnd == 1706700000000L)){//没有足够的查询负载，就按照原始旧方法去执行合并
             try {
                 LOGGER.info("文件选择器：ML执行器没有运行，按照旧模式执行文件合并");//即使选择出来了文件，但是先不进行合并任务提交，先阻塞
                 int maxLevel = searchMaxFileLevel();
                 for (int currentLevel = 0; currentLevel <= maxLevel; currentLevel++) {
-                    //if (!selectLevelTask(currentLevel, taskPriorityQueue)) {
-                    if (!selectLevelTask_RoundOldTimeLevel(currentLevel, taskPriorityQueue)) {
+                    if (!selectLevelTask(currentLevel, taskPriorityQueue)) {
+                    //if (!selectLevelTask_RoundOldTimeLevel(currentLevel, taskPriorityQueue)) {
                     //if (!selectLevelTask_byYaos_V1(currentLevel, taskPriorityQueue)) {
                         //如果在一层中找到了一批可以合并的文件，那么就终止，不再判断其他层级了
                         break; //这里面包含了核心的执行选择合并任务的逻辑
@@ -198,7 +198,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                             System.out.println(theSelectedFile.getTsFile().getName());
                         }
                         //todo 传统的选择策略
-                        //createAndSubmitTask(theSelectedFiles);//传统策略控制提交
+                        createAndSubmitTask(theSelectedFiles);//传统策略控制提交
                     }
                     break;//用来避免死循环，记得把这里删掉，在正常运行时
                      //System.out.println(taskPriorityQueue.poll().left);
@@ -215,8 +215,8 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
 //            queryTimeEnd = 1707164353000L;//临时放置
 //            queryTimeInterval = queryTimeEnd - queryTimeStart;，补充在这里，time tiered方法对于间隔值的计算，不能用重叠分析的
                 for (int currentLevel = 0; currentLevel <= maxLevel; currentLevel++) {
-                    //if (!selectLevelTask_byYaos_V1(currentLevel, taskPriorityQueue)) {
-                    if (!selectLevelTask_TimeTiered(currentLevel, taskPriorityQueue, cluster_queryTimeStart, cluster_queryTimeEnd)) {
+                    if (!selectLevelTask_byYaos_V1(currentLevel, taskPriorityQueue)) {
+                    //if (!selectLevelTask_TimeTiered(currentLevel, taskPriorityQueue, cluster_queryTimeStart, cluster_queryTimeEnd)) {
                         System.out.println("选中了1批文件：" + taskPriorityQueue.size());
                         //如果在一层中找到了至少一批可以合并的文件，那么就终止，不再判断上面其他层级了
                         //返回的taskPriorityQueue里面会包含一层内的多批次待合并文件资源
@@ -370,9 +370,9 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                 selectedFileSize = 0L;
                 shouldContinueToSearch = false;
                 selectFilesRuns ++;
-                if (selectFilesRuns >= 3){
-                    return shouldContinueToSearch;//限制提交合并的次数，模拟合并速率不适配的状态。这个设定在DTDG数据集上使用，因为并非是刷写和读的同时测试，避免一次把所有文件全提交
-                }
+//                if (selectFilesRuns >= 3){
+//                    return shouldContinueToSearch;//限制提交合并的次数，模拟合并速率不适配的状态。这个设定在DTDG数据集上使用，因为并非是刷写和读的同时测试，避免一次把所有文件全提交
+//                }
                 //return shouldContinueToSearch;//限制提交合并的次数，模拟合并速率不适配的状态
             }
         }

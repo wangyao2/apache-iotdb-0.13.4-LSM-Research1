@@ -406,8 +406,8 @@ public class SeriesReader {
       ChunkReadCount += count;
     }
 
-     //下面这几行，增加了需要加载的chunk的数量，测试读取测试时需要注销掉，以免这里的记录影响原本的IO速率
-//    String filePath = "RAoutput_DTDG_RoundOldTime_2MB1.csv";
+    // //0 下面这几行，增加了需要加载的chunk的数量，测试读取测试时需要注销掉，以免这里的记录影响原本的IO速率
+//    String filePath = "RAoutput_Rengong_Pres_5New1.csv";
 //    try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath, true))) {
 //      writer.write(ChunkReadCount + "\n");//把一次查询需要读取的点数，写入进去
 //    } catch (IOException e) {
