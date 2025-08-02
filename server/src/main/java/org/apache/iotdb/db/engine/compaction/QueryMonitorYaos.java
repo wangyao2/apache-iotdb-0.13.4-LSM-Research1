@@ -11,6 +11,8 @@ import org.apache.iotdb.tsfile.read.filter.operator.AndFilter;
 import org.apache.iotdb.tsfile.utils.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.BufferedWriter;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.lang.reflect.Field;
@@ -36,6 +38,9 @@ public class QueryMonitorYaos {
     private final ReadWriteLock QueryRWlock = new ReentrantReadWriteLock();//增加锁机制，确保实验运行时的查询添加捕获是合理的
     private static final Logger LOGGER =
             LoggerFactory.getLogger(IoTDBConstant.COMPACTION_LOGGER_NAME);
+
+    private static ArrayList<int[]> FilesNumInOneQuery= new ArrayList<>();//记录连续查询中，读取了多少个文件，用来统计文件数，里面的数组，一定是三元组，顺序文件数，乱序文件数，总数
+
     private static ArrayList<QueryPlan> QueryQRList = new ArrayList<>();//每一个新到达的query都添加进来作为备用
     private static ArrayList<QueryContext> ContextCTList = new ArrayList<>();//每一个新到达的query都添加进来作为备用
 
@@ -77,11 +82,21 @@ public class QueryMonitorYaos {
 //        analyzeTheGolableFeatures();
     }
 
+    public void addFilsNum(int seqFileNum, int UnseqFileNum) {
+        // 记录一次查询中，涉及到的文件数量，传入顺序和乱序的文件数量
+        //QueryRWlock.writeLock().lock();
+        int totalfileNum = seqFileNum + UnseqFileNum;
+        int[] FileInvovledInOnQUEY = {seqFileNum, UnseqFileNum, totalfileNum};
+        FilesNumInOneQuery.add(FileInvovledInOnQUEY);//记录一个查询中涉及到的文件数量
+        //QueryRWlock.writeLock().unlock();
+    }
+
     /**
      * 遍历收集的所有查询负载，如果数量超过10条，才进行分析，否则暂时不分析
      * 用来计算收集到的所有查询负载，获得每一个查询的<起始时间，查询时间跨度，结束时间>，并把它们放到QueryFeaturesList中以备后续分析计算
      */
     public void analyzeTheQueryFeature() {
+        //RecordFilesInvovledInFiles();
         LOGGER.info("查询监视器：尝试提取序列的查询特征...");
 
         if (QueryQRList.size() < 60) {
@@ -186,6 +201,28 @@ public class QueryMonitorYaos {
         System.out.println("Query Monitor has finished the Spilt Query List !");
     }
 
+    private void RecordFilesInvovledInFiles(){
+        LOGGER.info("查询监视器：输出查询中涉及到的文件数量， 当前查询数量是： " + QueryQRList.size());
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter("FilesInvovledInQuerys.csv", true))) {
+            for (int[] array : FilesNumInOneQuery) {//追加写方式，记录查询涉及到的文件数量
+                StringBuilder sb = new StringBuilder();// 将int数组转换为逗号分隔的字符串
+                for (int i = 0; i < array.length; i++) {
+                    sb.append(array[i]);
+                    if (i < array.length - 1) {
+                        sb.append(",");
+                    }
+                }
+                writer.write(sb.toString());
+                writer.newLine();
+            }
+            System.out.println("数据成功追加到FilesInvovledInQuerys.csv");
+        } catch (IOException e) {
+            System.err.println("写入文件时出错: " + e.getMessage());
+            e.printStackTrace();
+        }
+        FilesNumInOneQuery.clear();
+        LOGGER.info("查询监视器：文件数量输出完毕");
+    }
     /**
      * 用来根据查询负载的数量去动态生成分组大小，然后再按照分组大小去
      * 在这个方法内，我们会调整GROUP_SIZE的大小，并不返回变量，但是

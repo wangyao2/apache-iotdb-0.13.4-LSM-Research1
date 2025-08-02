@@ -207,7 +207,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
             } catch (Exception e) {
                 LOGGER.error("Exception occurs while selecting files", e);
             }
-        }else {//如果收集到了足够的查询负载，那么旧按照
+        }else {//如果收集到了足够的查询负载，那么就按照 热点范围预选择文件，2025-8增加了针对乱序数据的额外整合
             try {
                 int maxLevel = searchMaxFileLevel();
                 //临时手动设置queryTimeStart和queryTimeEnd，方便调试合并收益的计算流程
@@ -223,7 +223,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                         break;//这里面包含了核心的执行选择合并任务的逻辑,直到当前层里面有就不去遍历下一层了，
                     }
                 }
-                //暂时关闭对旧文件的提前合并
+                //暂时关闭对旧文件的提前合并，基于预测区间和热点区间的关系，去选择文件合并
 //                if (CandidatelongPair != null && (CandidatelongPair.left !=0 && CandidatelongPair.right !=0)){//两个区间没有交集，没有交集再去单独分析聚类的结果
 //                    //再搜索一波文件 提交分析，重新以新的分组再次搜索值得合并的文件
 //                    queryTimeStart = CandidatelongPair.left;
@@ -537,6 +537,113 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
     编写论文算法设计的，文件选择合并策略
      */
     private boolean selectLevelTask_byYaos_V1(
+            int level, PriorityQueue<Pair<List<TsFileResource>, Long>> taskPriorityQueue) //文件选择里面的level仅仅是用来筛选本层的文件
+            throws IOException {
+        LOGGER.debug("使用Pres方法实现文件合并...");
+        int HDDSeekSpeed = 15;//机械硬盘的寻道时间，单位毫秒，取15ms
+        int ReadHDDSpeed = 50 * 1048576;//机械硬盘的读取速率，单位是50MB/s = 50 * 1,048,576B。
+        double mergeSpeed = 16 * 1048576;//这两个写入 合并 速率参数，暂时还不能确定具体数据在iotdb Config里面，第604行，16MB/s
+
+        boolean shouldContinueToSearch = true;
+        long selectedFileSize = 0L;
+        long targetCompactionFileSize = config.getTargetCompactionFileSize(); // 1GB的字节
+
+        ////==========核心逻辑的编码位置=================
+        // 现在的文件添加和选择方法是按照顺序选择，我们在这个等号的范围内编写自己的文件选择策略
+
+        List<long[]> candidateList = new ArrayList<>();//仅仅记录了下标和位置
+        List<TsFileResource> overlappedList = calculateOverlappedList(tsFileResources, level);//这个函数里面已经使用了外面的全局变量用户期望的查询时间段
+        long offsetTime = 0;//overlappedList里面的文件是按照时间先后，新的文件在list的前面 下标号小，新的文件在List的头部
+        //Collections.reverse(overlappedList);//调整文件的顺序，使得旧的文件在overlaplist的前面
+        for (int i = 0; i < overlappedList.size(); i++) { //遍历每一个和时间范围有交叉的文件，在张lz的算法中，只有一个for循环，没有外层的循环，已经改成对应的单个for循环了
+            TsFileResource FirsttsFileResource = overlappedList.get(i);
+            long FirstFileEnd = FirsttsFileResource.getTimeIndex().getMaxEndTime();
+            long FirstFileStart = FirsttsFileResource.getTimeIndex().getMinStartTime();//获得一个文件的跨度
+            long FirstFileSize = FirsttsFileResource.getTsFileSize();//读取文件大小
+            double mergeTimeCost = FirstFileSize / mergeSpeed;//仅用来计算合并偏移
+
+            for (int j = i + 1; j < overlappedList.size(); j++) { //似乎是遍历i后面的每一个文件
+                TsFileResource NextTsFileResource = overlappedList.get(j);
+                int numIncome = j - i; //这个应该是对应文件的数量,在两个文件i，j节省了多少个文件，节省了几次寻道次数
+
+                long NextFileSize = NextTsFileResource.getTsFileSize();//读取文件大小
+                mergeTimeCost = mergeTimeCost + NextFileSize / mergeSpeed;//把后续文件合并需要的时间都累加进来
+
+                double deviaQueryTimeStart = queryTimeStart + mergeTimeCost;//合并完成后，查询时间偏移
+                double deviaQueryEndStart = queryTimeEnd + mergeTimeCost;//合并完成后，查询时间偏移
+
+                double amplifyPersent = 0;//记录一个放大比例，理论上来说，只能是一个在[0,1]之间的数
+                double amplifyFileSize = 0;
+                double SUMamplifyPersent = 0;//记录一个放大比例，理论上来说，只能是一个在[0,1]之间的数
+
+                for (int ii = i; ii < j; ii++){
+                    //遍历选中的这批文件范围，判断有读放大的是哪些，通常只有前几个（时间戳小的）文件涉及读放大问题
+                    //但是，获取的列表中，越新的文件，越排在list的前面
+                    TsFileResource AmPJudgetsFileResource = overlappedList.get(ii);
+                    long minStartTime = AmPJudgetsFileResource.getTimeIndex().getMinStartTime();
+                    double fileTimeRangeGap = deviaQueryTimeStart - minStartTime;//文件的时间
+
+                    if (fileTimeRangeGap > 0){//计算重叠大小
+                        long maxEndTime = AmPJudgetsFileResource.getTimeIndex().getMaxEndTime();
+                        amplifyPersent = fileTimeRangeGap / (maxEndTime - minStartTime);
+                        amplifyFileSize = amplifyFileSize + amplifyPersent * AmPJudgetsFileResource.getTsFileSize();
+                        SUMamplifyPersent += amplifyPersent;
+                    }else {
+                        break;
+                    }
+                }
+                double SavedTime;
+
+                if (SUMamplifyPersent > 0){//如果两个以上文件有重叠
+                    SavedTime = numIncome * HDDSeekSpeed - amplifyFileSize / ReadHDDSpeed;//第一项是节省的寻道时间,第二项是读放大带来的负收益
+                }else {
+                    SavedTime = numIncome * HDDSeekSpeed;//第一项是节省的寻道时间,第二项是读放大带来的负收益
+                }
+
+                double currentIncome = 0L;//记录当前环和批次的收益
+                currentIncome = currentIncome + SavedTime;//累积从i到j的合并开销和收益权衡
+                candidateList.add(new long[]{i, j, (long) currentIncome}); //这里似乎是以下标的方式，记录两两文件的互相之间，reward
+            }
+        }
+        // get the tuple with max reward among candidate list
+        long[] maxTuple = new long[]{0, 0, 0L};
+        for (long[] tuple : candidateList) { //这里是分析，取出两两之间，ij可能是记录的范围，总之是对比哪一组收益更大
+            if (tuple[2] >= maxTuple[2]) {//如果后面有更新的，那么优先考虑新文件，所以采用了等于号
+                maxTuple = tuple;
+            }
+        }
+        TsFileResource currentFile;
+        List<TsFileResource> YaosselectedFiles = new ArrayList<>();//根据合并受益，选择被合并的候选文件
+        if (!overlappedList.isEmpty()){//如果有文件才执行，以免系统一直报索引溢出的错误
+            for (int i = (int) maxTuple[0]; i <= maxTuple[1]; i++) { //把前面收益最大的那一个，对应的ij下标范围内的文件选择出来
+                currentFile = overlappedList.get(i);
+                YaosselectedFiles.add(overlappedList.get(i));//这个或许就是最终选择出来的文件
+                LOGGER.debug("Current File is {}, size is {}", currentFile, currentFile.getTsFileSize());
+                selectedFileSize += currentFile.getTsFileSize();
+                LOGGER.debug(
+                        "Add tsfile {}, current select file num is {}, size is {}",
+                        currentFile,
+                        YaosselectedFiles.size(),
+                        selectedFileSize);
+            }
+            if (YaosselectedFiles.size() >= 2 || selectedFileSize >= 200 ) {//先确保文件数量的正确性
+                //注意在选择完文件之后，需要合并的文件数最少得是3，文件合并数已经修改,现在怀疑是下面的数量不对//合并时候候选文件的数量如果为3，那么就合并，原本是30个合并
+                // submit the task
+                if (YaosselectedFiles.size() > 1) {//满足刷写条件之后，就封装这一批文件到任务队列中
+                    taskPriorityQueue.add(new Pair<>(new ArrayList<>(YaosselectedFiles), selectedFileSize));
+                }
+                //selectedFileSize = 0L;//目前算法每次调用时，只封装生成一个合并任务，原本的是在一层中搜索多次，一次搜索封装多个任务
+                //因为，只搜索一次，
+                shouldContinueToSearch = false;
+            }
+        }
+        return shouldContinueToSearch;
+    }
+
+    /*
+    编写论文算法设计的，文件选择合并策略，选择文件考虑，乱序文件的存在，考虑数据分散问题
+     */
+    private boolean selectLevelTask_byYaos_V2(
             int level, PriorityQueue<Pair<List<TsFileResource>, Long>> taskPriorityQueue) //文件选择里面的level仅仅是用来筛选本层的文件
             throws IOException {
         LOGGER.debug("使用Pres方法实现文件合并...");

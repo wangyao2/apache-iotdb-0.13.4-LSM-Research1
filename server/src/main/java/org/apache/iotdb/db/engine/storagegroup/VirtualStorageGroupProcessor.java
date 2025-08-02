@@ -92,7 +92,9 @@ import org.apache.commons.io.FileUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.MappedByteBuffer;
@@ -1802,6 +1804,31 @@ public class VirtualStorageGroupProcessor {
               timeFilter,
               false);
       QueryDataSource dataSource = new QueryDataSource(seqResources, unseqResources);
+
+      //todo 1 记录查询后输出到文件
+      int seqFileNum = seqResources.size();
+      int UnseqFileNum = unseqResources.size();
+      QueryMonitorYaos monitorYaos = QueryMonitorYaos.getInstance();//每一次执行查询的时候，都把
+      monitorYaos.addFilsNum(seqFileNum, UnseqFileNum);
+      int[] FileInvovledInOnQUEY = {seqFileNum, UnseqFileNum, seqFileNum + UnseqFileNum};
+      //todo 2 伴随着查询把查询涉及到的文件输出去
+      try (BufferedWriter writer = new BufferedWriter(new FileWriter("FilesInvovledInQuerys.csv", true))) {
+        // 构建逗号分隔的字符串
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < FileInvovledInOnQUEY.length; i++) {
+          sb.append(FileInvovledInOnQUEY[i]);
+          if (i < FileInvovledInOnQUEY.length - 1) {
+            sb.append(",");
+          }
+        }
+        writer.write(sb.toString());
+        writer.newLine();
+        System.out.println("数组数据成功追加到: " + "FilesInvovledInQuerys.csv");
+      } catch (IOException e) {
+        System.err.println("写入文件时出错: " + e.getMessage());
+        e.printStackTrace();
+      }
+
       // used files should be added before mergeLock is unlocked, or they may be deleted by
       // running merge
       // is null only in tests

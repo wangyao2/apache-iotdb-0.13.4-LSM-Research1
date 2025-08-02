@@ -72,7 +72,7 @@ public class RawDataQueryExecutor {
       return dataSet;
     }
     List<ManagedSeriesReader> readersOfSelectedSeries = initManagedSeriesReader(context); //根据查询上下文创建IBatchReader的实现类ManagedSeriesReader的实现类，可能是seriesRawDataBatchReader
-    //再创建的过程中，还涉及到VSG去加载文件资源，以及QueryResourceManager查询资源管理器去负责加载资源进来
+    //再创建的过程中，还涉及到VSG去加载文件资源，以及QueryResourceManager查询资源管理器去负责加载资源进来，如果要计数文件的加载数量，就在上面难得 QueryResource 里面统计
     try {
       return new RawQueryDataSetWithoutValueFilter(
           context.getQueryId(), queryPlan, readersOfSelectedSeries);
@@ -130,7 +130,7 @@ public class RawDataQueryExecutor {
         TSDataType dataType = path.getSeriesType();
 
         QueryDataSource queryDataSource =
-            QueryResourceManager.getInstance()//2 根据寻找的查询资源，获取对应资源
+            QueryResourceManager.getInstance()//2 根据寻找的查询资源，获取对应资源，在这里也可以看到，这一次查询涉及到哪些文件了
                 .getQueryDataSource(path, context, timeFilter, queryPlan.isAscending());
         timeFilter = queryDataSource.updateFilterUsingTTL(timeFilter);
 

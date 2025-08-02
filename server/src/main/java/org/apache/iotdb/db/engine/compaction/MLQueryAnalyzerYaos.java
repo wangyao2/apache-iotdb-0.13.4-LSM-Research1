@@ -268,6 +268,7 @@ public class MLQueryAnalyzerYaos {
         train_SpiltData_EndTime.randomize(new java.util.Random(0)); // 训练集打散
 
         RandomForest model_StartTime = new RandomForest();
+
         model_StartTime.buildClassifier(train_SpiltData_StartTime);
 
         RandomForest model_EndTime = new RandomForest();

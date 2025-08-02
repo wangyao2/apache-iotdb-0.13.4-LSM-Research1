@@ -121,9 +121,9 @@ public class SeriesRawDataBatchReader implements ManagedSeriesReader {
     }
 
     /*
-     * consume next file finally
+     * consume next file finally，2025-8，找地方放一个全局变量，然后记录一共读取了多少个文件。 然后再测试多个查询，会查询出多少个。
      */
-    while (seriesReader.hasNextFile()) { //借助SeriesReader工具去实现读取
+    while (seriesReader.hasNextFile()) { //借助SeriesReader工具去实现读取，这里应该是记录要读取的文件
       if (readChunkData()) {
         hasCachedBatchData = true;
         return true;
