@@ -26,19 +26,36 @@ import org.apache.iotdb.db.engine.compaction.MLQueryAnalyzerYaos;
 import org.apache.iotdb.db.engine.compaction.QueryMonitorYaos;
 import org.apache.iotdb.db.engine.compaction.inner.AbstractInnerSpaceCompactionSelector;
 import org.apache.iotdb.db.engine.compaction.inner.InnerSpaceCompactionTaskFactory;
+import org.apache.iotdb.db.engine.compaction.inner.utils.MultiTsFileDeviceIterator;
 import org.apache.iotdb.db.engine.compaction.task.AbstractCompactionTask;
+import org.apache.iotdb.db.engine.querycontext.QueryDataSource;
 import org.apache.iotdb.db.engine.storagegroup.TsFileManager;
 import org.apache.iotdb.db.engine.storagegroup.TsFileNameGenerator;
 import org.apache.iotdb.db.engine.storagegroup.TsFileResource;
 import org.apache.iotdb.db.engine.storagegroup.TsFileResourceStatus;
 import org.apache.iotdb.db.engine.storagegroup.timeindex.ITimeIndex;
+import org.apache.iotdb.db.exception.metadata.IllegalPathException;
+import org.apache.iotdb.db.metadata.path.AlignedPath;
+import org.apache.iotdb.db.metadata.path.MeasurementPath;
+import org.apache.iotdb.db.metadata.path.PartialPath;
+import org.apache.iotdb.db.query.context.QueryContext;
+import org.apache.iotdb.db.query.control.QueryResourceManager;
+import org.apache.iotdb.db.query.reader.series.SeriesRawDataPrefetchReader;
+import org.apache.iotdb.db.utils.QueryUtils;
+import org.apache.iotdb.tsfile.file.metadata.enums.TSDataType;
+import org.apache.iotdb.tsfile.read.common.BatchData;
+import org.apache.iotdb.tsfile.read.reader.IBatchReader;
 import org.apache.iotdb.tsfile.utils.Pair;
+import org.apache.iotdb.tsfile.utils.TsPrimitiveType;
+import org.apache.iotdb.tsfile.write.schema.IMeasurementSchema;
+import org.apache.iotdb.tsfile.write.schema.MeasurementSchema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * SizeTieredCompactionSelector selects files to be compacted based on the size of files. The
@@ -128,7 +145,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
         long predited_Endtime = 0;
         long Clustered_Startime = 0;
         long Clustered_Endtime = 0;
-        ArrayList<QueryMonitorYaos.FeatureofGroupQuery> analyzedGroupFeatruedList = monitorYaos.getAnalyzedGroupsFeatruedList();//获得计算的访问负载特征，查询的起始时间
+        ArrayList<QueryMonitorYaos.FeatureofGroupQuery> analyzedGroupFeatruedList = monitorYaos.getAnalyzedGroupsFeatruedList();//获得计算的访问负载特征，这个就是训练用的样本,查询的起始时间
         //todo 如果近期没有收集到足够的查询负载，那么就按照通常的原始合并去做。会直接跳过ML分析步骤
         if (!analyzedGroupFeatruedList.isEmpty()){//查询数量足够，而且不是空的条件下才去执行ML分析
             LOGGER.info("文件选择器：获取到一批足量查询负载，可以继续ML分析....");
@@ -139,7 +156,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
             try {//处理训练模型时发生的异常
                 //predictedStartimeAndEndTime = MLAnalyzer.TranningAndPredict();//预测即将会被访问到的数据，单步预测
                 //todo 关闭预测算法，使用传统策略，注释掉预测分析下面这一行，这样会采用默认的策略
-                predictedStartimeAndEndTime = MLAnalyzer.TranningAndPredictWithMoreStepAndFeatures();//预测即将会被访问到的数据
+                //predictedStartimeAndEndTime = MLAnalyzer.TranningAndPredictWithMoreStepAndFeatures();//预测即将会被访问到的数据
                 //ClusteredStartimeAndEndTime = MLAnalyzer.ClusteringTheCurrentQueryRrange();//汇总当前被访问到的数据，已经改掉了，现在是借助查询分析器去找负载中心
 
                 predited_Startime = predictedStartimeAndEndTime[0];
@@ -181,16 +198,16 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                 LOGGER.info("文件选择器：ML执行器没有运行，按照旧模式执行文件合并");//即使选择出来了文件，但是先不进行合并任务提交，先阻塞
                 int maxLevel = searchMaxFileLevel();
                 for (int currentLevel = 0; currentLevel <= maxLevel; currentLevel++) {
-                    if (!selectLevelTask(currentLevel, taskPriorityQueue)) {
+                    //if (!selectLevelTask(currentLevel, taskPriorityQueue)) {
                     //if (!selectLevelTask_RoundOldTimeLevel(currentLevel, taskPriorityQueue)) {
+                    if (!selectLevelTask_TimeTiered(currentLevel, taskPriorityQueue, cluster_queryTimeStart, cluster_queryTimeEnd)) {
                     //if (!selectLevelTask_byYaos_V1(currentLevel, taskPriorityQueue)) {
-                        //如果在一层中找到了一批可以合并的文件，那么就终止，不再判断其他层级了
                         break; //这里面包含了核心的执行选择合并任务的逻辑
                     }
                 }
                 while (!taskPriorityQueue.isEmpty()) {
                     int count  = 1;
-                    LOGGER.info("旧文件选择器：按照旧文件选择待合并文件选择了一批文件，但是被手动设置为并不提交合并任务。选择的文件是： ");//即使选择出来了文件，但是先不进行合并任务提交，先阻塞
+                    LOGGER.info("对照组件（旧）选择器：按照旧文件选择待合并文件选择了一批文件，但是被手动设置为并不提交合并任务。选择的文件是： ");//即使选择出来了文件，但是先不进行合并任务提交，先阻塞
                     while (!taskPriorityQueue.isEmpty()){
                         System.out.println("（旧版）输出一批文件，批次：" + count++);
                         List<TsFileResource> theSelectedFiles = taskPriorityQueue.poll().left;
@@ -241,7 +258,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
 //                }
                 while (taskPriorityQueue.size() > 0) { //前面可能遍历得到了好几批，候选文件的集和，这里分别把他们提交成任务
                     int count = 1;
-                    LOGGER.info("文件选择器：选择了一批文件，但是被手动设置为并不提交合并任务。");
+                    LOGGER.info("PreS文件选择器：选择了一批文件，但是被手动设置为并不提交合并任务。");
                     while (!taskPriorityQueue.isEmpty()){
                         System.out.println("ML策略选择的批次输出一批文件，批次：" + count++);
                         List<TsFileResource> theSelectedFiles = taskPriorityQueue.poll().left;
@@ -346,6 +363,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
         long selectedFileSize = 0L;
         long targetCompactionFileSize = config.getTargetCompactionFileSize(); // 1GB的字节
         int selectFilesRuns = 0;//模拟一次合并的触发时，并不是全部文件被参与合并
+        System.out.println("使用Oldest合并策略.....oldest");
         for (TsFileResource currentFile : tsFileResources) {//在这里就被封装成多个批次了
             TsFileNameGenerator.TsFileName currentName = //把文件名进行解析成时间戳-版本-合并次数-跨空间次数的格式
                     TsFileNameGenerator.getTsFileName(currentFile.getTsFile().getName());
@@ -355,11 +373,8 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                 selectedFileSize = 0L;
                 continue;
             }
-            //LOGGER.debug("Current File is {}, size is {}", currentFile, currentFile.getTsFileSize());
             selectedFileList.add(currentFile); //把当前层级的文件持续的添加到临时队列selectedFileList当中，只要没满足142行的条件，就一直添加新的进来
             selectedFileSize += currentFile.getTsFileSize();
-            //LOGGER.debug("Add tsfile {}", currentFile);
-            // if the file size or file num reach threshold，判断临时队列的数量或者存储空间的大小
             if (selectedFileSize >= targetCompactionFileSize
                     || selectedFileList.size() >= config.getMaxInnerCompactionCandidateFileNum()) { //合并时候候选文件的数量如果为10，那么就合并，原本是30个合并
                 // submit the task
@@ -374,6 +389,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
 //                    return shouldContinueToSearch;//限制提交合并的次数，模拟合并速率不适配的状态。这个设定在DTDG数据集上使用，因为并非是刷写和读的同时测试，避免一次把所有文件全提交
 //                }
                 //return shouldContinueToSearch;//限制提交合并的次数，模拟合并速率不适配的状态
+                break;//选中1批文件就返回，不再多次选择文件
             }
         }
         return shouldContinueToSearch;
@@ -382,6 +398,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
     /*
     SizeTired，把一层内的全部文件合并
     算法对比试验，仅仅把一层的数据全部选中，仅仅把最低层的文件，合并到下一层内
+    2025-8 Round方法修改为 随机轮询合并策略
     which merges all SSTables as one to the next level each time one level is full.
     This scheme is the default compaction scheme in Cassandra.
     */
@@ -400,12 +417,12 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                 TsFileNameGenerator.getTsFileName(finalResource.getTsFile().getName());
         long finaLcurrentNameVersion = FINALcurrentName.getVersion();
         //int CandidateFilessize = 15;//人工集
-        int CandidateFilessize = 30; //DTDG
-
+        //int CandidateFilessize = 30; //DTDG
+        int CandidateFilessize = config.getMaxInnerCompactionCandidateFileNum();
 //        if (RoundOldTimeCandidateFilessize == 0){//如果没有被设置过，那么我们才进行设置，已经调整为了全局变量，只有DTDG盾构机的使用，启用对照组的数量调定
 //            RoundOldTimeCandidateFilessize = tsFileResources.size() / 5;//这个参数是测试文件变化和查询速率影响使用
 //        }
-
+        Collections.shuffle(tsFileResources);
         for (TsFileResource currentFile : tsFileResources) {//在这里就被封装成多个批次了
             TsFileNameGenerator.TsFileName currentName = //把文件名进行解析成时间戳-版本-合并次数-跨空间次数的格式
                     TsFileNameGenerator.getTsFileName(currentFile.getTsFile().getName());
@@ -641,110 +658,138 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
     }
 
     /*
-    编写论文算法设计的，文件选择合并策略，选择文件考虑，乱序文件的存在，考虑数据分散问题
+    2025-8新版算法，编写论文算法设计的，文件选择合并策略，选择文件考虑，乱序文件的存在，考虑数据分散问题
      */
     private boolean selectLevelTask_byYaos_V2(
             int level, PriorityQueue<Pair<List<TsFileResource>, Long>> taskPriorityQueue) //文件选择里面的level仅仅是用来筛选本层的文件
             throws IOException {
-        LOGGER.debug("使用Pres方法实现文件合并...");
-        int HDDSeekSpeed = 15;//机械硬盘的寻道时间，单位毫秒，取15ms
-        int ReadHDDSpeed = 50 * 1048576;//机械硬盘的读取速率，单位是50MB/s = 50 * 1,048,576B。
-        double mergeSpeed = 16 * 1048576;//这两个写入 合并 速率参数，暂时还不能确定具体数据在iotdb Config里面，第604行，16MB/s
-
+        LOGGER.debug("使用Pres new方法实现文件合并...");
         boolean shouldContinueToSearch = true;
         long selectedFileSize = 0L;
         long targetCompactionFileSize = config.getTargetCompactionFileSize(); // 1GB的字节
-
+        int M = config.getMaxInnerCompactionCandidateFileNum();//定义可参与合并的文件数量
         ////==========核心逻辑的编码位置=================
-        // 现在的文件添加和选择方法是按照顺序选择，我们在这个等号的范围内编写自己的文件选择策略
+        List<TsFileResource> CurrentLevelFileList = new ArrayList<>();//当前层所有文件
+        for (TsFileResource currentFile : tsFileResources) {//在这里就被封装成多个批次了
+            TsFileNameGenerator.TsFileName currentName = TsFileNameGenerator.getTsFileName(currentFile.getTsFile().getName());
+            if (currentName.getInnerCompactionCnt() != level || currentFile.getStatus() != TsFileResourceStatus.CLOSED) {
+                continue;
+            }
+            CurrentLevelFileList.add(currentFile); //把当前层级的文件持续的添加到临时队列selectedFileList当中，只要没满足142行的条件，就一直添加新的进来
+        }
+        if (CurrentLevelFileList.size() < M){//数量直接不够
+            return true;//当前层可供选择的文件太少了，需要继续搜索其它层
+        }
 
-        List<long[]> candidateList = new ArrayList<>();//仅仅记录了下标和位置
+        // 现在的文件添加和选择方法是按照顺序选择，我们在这个等号的范围内编写自己的文件选择策略
         List<TsFileResource> overlappedList = calculateOverlappedList(tsFileResources, level);//这个函数里面已经使用了外面的全局变量用户期望的查询时间段
-        long offsetTime = 0;//overlappedList里面的文件是按照时间先后，新的文件在list的前面 下标号小，新的文件在List的头部
-        //Collections.reverse(overlappedList);//调整文件的顺序，使得旧的文件在overlaplist的前面
+        List<TsFileResource> YaosselectedFiles = new ArrayList<>();//根据合并受益，选择被合并的候选文件
+
+        int FileNumOverlaped = overlappedList.size();//与热点区间存在重叠的文件数量
+        //todo 0 如果重叠文件数恰好M，那么就直接选中这M个文件即可
+        if (FileNumOverlaped == M){
+            //那么就直接提交这一批文件
+            System.out.println("直接提交，文件数量恰好为M ： " + M);
+            taskPriorityQueue.add(new Pair<>(new ArrayList<>(overlappedList), selectedFileSize));//直接提交文件
+            return false;
+        }else if (FileNumOverlaped > M){
+        //todo 1 如果重叠文件数大于 > M，那么就从M个文件中选择
+            // 1.1 先加载精确的时间戳文件
+            ArrayList<ArrayList<Long>> timeLists = new ArrayList<>();
+            ArrayList<ArrayList<ArrayList<Boolean>>> allBitmapLists = new ArrayList<>();
+            ArrayList<ArrayList<String>> schemaLists = new ArrayList<>();
+            for (TsFileResource currentFile : overlappedList) {//所有文件全都遍历一遍
+                TsFileNameGenerator.TsFileName currentName =
+                        TsFileNameGenerator.getTsFileName(currentFile.getTsFile().getName());
+                // read all files
+                if (!this.sequence) { //对于乱序空间的数据做以下内容,加载时间列和位图列，还有元数据列
+                    ArrayList<Long> timeList = new ArrayList<>();
+                    ArrayList<ArrayList<Boolean>> bitmapLists = new ArrayList<>();
+                    ArrayList<String> schemaList = new ArrayList<>();
+                    readMultiFileDataWithoutValues(currentFile, timeList, bitmapLists, schemaList);
+                    //去读某一个文件内所有的数值，只读取时间列还有bitmap列，观察了函数readMultiFileDataWithoutValues里面的内容，fang并没有用自创的序列读取器，而是读取每一个数值，手动制作bitmap，并且填充到time bitmap还有schema里面
+                    timeLists.add(timeList);
+                    allBitmapLists.add(bitmapLists);
+                    schemaLists.add(schemaList);
+                }//在这里每一个文件都对应一个timeLists、allBitmapLists和schemaLists中的一个位置。这是一个二维的list结构，但是怎么个对应关系还有待考察
+            }
+            // 1.2 从按照数据的重叠度选择重叠度高的文件加载
+            List<TsFileResource> resourceList = FinedSelectFilesForM(overlappedList, M);
+            taskPriorityQueue.add(new Pair<>(new ArrayList<>(resourceList), 0L));//直接提交文件
+            shouldContinueToSearch = false;
+        }else {
+        //todo 2 如果重叠文件数小于 < M，那么就从其他候选文件中填充
+            //选择被合并的候选文件
+
+            ExpandSelectFilesForM(CurrentLevelFileList);
+        }
+
+        return shouldContinueToSearch;
+    }
+
+    private List<TsFileResource> FinedSelectFilesForM(List<TsFileResource> overlappedList, int M){
+        //todo 1 计算所有文件的区间重叠度
+        Map<TsFileResource, Double> fileHeatCoverageMap = new HashMap<>(); // 存储每个文件的热点覆盖比例
+        for (int i = 0; i < overlappedList.size(); i++) { //遍历每一个和时间范围有交叉的文件，在张lz的算法中，只有一个for循环，没有外层的循环，已经改成对应的单个for循环了
+            TsFileResource tsFileResource  = overlappedList.get(i);
+            long FirstFileEnd = tsFileResource .getTimeIndex().getMaxEndTime();
+            long FirstFileStart = tsFileResource .getTimeIndex().getMinStartTime();//获得一个文件的跨度
+            long FirstFileSize = tsFileResource .getTsFileSize();//读取文件大小
+            // 1. 计算文件与热点区间的重叠部分
+            long overlapStart = Math.max(FirstFileStart, queryTimeStart);
+            long overlapEnd = Math.min(FirstFileEnd, queryTimeEnd);
+            // 2. 计算文件自身的数据时间范围和重叠部分的时间范围
+            long fileRange = FirstFileEnd - FirstFileStart;  // 文件总时间范围
+            // 3. 计算热点覆盖比例
+            double coverageRatio;
+            if (fileRange <= 0) {
+                // 处理时间范围异常的文件（可能只有一个时间点）
+                coverageRatio = (FirstFileStart >= queryTimeStart && FirstFileEnd <= queryTimeEnd) ? 1.0 : 0.0;
+            } else if (overlapEnd >= overlapStart) {
+                long overlapRange = overlapEnd - overlapStart;  // 重叠部分时间范围
+                coverageRatio = (double) overlapRange / fileRange;
+                coverageRatio = Math.max(0.0, Math.min(1.0, coverageRatio));
+            } else {
+                coverageRatio = 0.0;
+            }
+            // 4.将计算结果存入Map
+            fileHeatCoverageMap.put(tsFileResource, coverageRatio);
+        }//有的文件可能跨度大，但是 重叠的数值却比较少
+        // 根据热度排序文件（最高热度优先）
+        List<Map.Entry<TsFileResource, Double>> sortedFiles = fileHeatCoverageMap.entrySet().stream()
+                .sorted(Map.Entry.comparingByValue(Comparator.reverseOrder()))
+                .collect(Collectors.toList());
+        //todo 2 按照重叠叠，从高到低选择合并
+        List<TsFileResource> resourceList = new ArrayList<>();
+        for (int i = 0; i < M; i++) {
+            resourceList.add(sortedFiles.get(i).getKey());
+        }
+        return resourceList;
+    }
+
+    private void FinedSelectFilesForM(List<TsFileResource> overlappedList, ArrayList<ArrayList<Long>> timeLists){
+        //todo 1 计算所有文件的区间重叠度
         for (int i = 0; i < overlappedList.size(); i++) { //遍历每一个和时间范围有交叉的文件，在张lz的算法中，只有一个for循环，没有外层的循环，已经改成对应的单个for循环了
             TsFileResource FirsttsFileResource = overlappedList.get(i);
             long FirstFileEnd = FirsttsFileResource.getTimeIndex().getMaxEndTime();
             long FirstFileStart = FirsttsFileResource.getTimeIndex().getMinStartTime();//获得一个文件的跨度
             long FirstFileSize = FirsttsFileResource.getTsFileSize();//读取文件大小
-            double mergeTimeCost = FirstFileSize / mergeSpeed;//仅用来计算合并偏移
 
-            for (int j = i + 1; j < overlappedList.size(); j++) { //似乎是遍历i后面的每一个文件
-                TsFileResource NextTsFileResource = overlappedList.get(j);
-                int numIncome = j - i; //这个应该是对应文件的数量,在两个文件i，j节省了多少个文件，节省了几次寻道次数
 
-                long NextFileSize = NextTsFileResource.getTsFileSize();//读取文件大小
-                mergeTimeCost = mergeTimeCost + NextFileSize / mergeSpeed;//把后续文件合并需要的时间都累加进来
+        }//有的文件可能跨度大，但是 重叠的数值却比较少
 
-                double deviaQueryTimeStart = queryTimeStart + mergeTimeCost;//合并完成后，查询时间偏移
-                double deviaQueryEndStart = queryTimeEnd + mergeTimeCost;//合并完成后，查询时间偏移
+        //todo 2 按照重叠叠，从高到低选择合并
 
-                double amplifyPersent = 0;//记录一个放大比例，理论上来说，只能是一个在[0,1]之间的数
-                double amplifyFileSize = 0;
-                double SUMamplifyPersent = 0;//记录一个放大比例，理论上来说，只能是一个在[0,1]之间的数
 
-                for (int ii = i; ii < j; ii++){
-                    //遍历选中的这批文件范围，判断有读放大的是哪些，通常只有前几个（时间戳小的）文件涉及读放大问题
-                    //但是，获取的列表中，越新的文件，越排在list的前面
-                    TsFileResource AmPJudgetsFileResource = overlappedList.get(ii);
-                    long minStartTime = AmPJudgetsFileResource.getTimeIndex().getMinStartTime();
-                    double fileTimeRangeGap = deviaQueryTimeStart - minStartTime;//文件的时间
+    }
 
-                    if (fileTimeRangeGap > 0){//计算重叠大小
-                        long maxEndTime = AmPJudgetsFileResource.getTimeIndex().getMaxEndTime();
-                        amplifyPersent = fileTimeRangeGap / (maxEndTime - minStartTime);
-                        amplifyFileSize = amplifyFileSize + amplifyPersent * AmPJudgetsFileResource.getTsFileSize();
-                        SUMamplifyPersent += amplifyPersent;
-                    }else {
-                        break;
-                    }
-                }
-                double SavedTime;
+    private void ExpandSelectFilesForM(List<TsFileResource> CurrentFiles){
+        //todo 1 从当前层文件里面再选其他文件补充进来
 
-                if (SUMamplifyPersent > 0){//如果两个以上文件有重叠
-                    SavedTime = numIncome * HDDSeekSpeed - amplifyFileSize / ReadHDDSpeed;//第一项是节省的寻道时间,第二项是读放大带来的负收益
-                }else {
-                    SavedTime = numIncome * HDDSeekSpeed;//第一项是节省的寻道时间,第二项是读放大带来的负收益
-                }
+        //按照平均查询热度
 
-                double currentIncome = 0L;//记录当前环和批次的收益
-                currentIncome = currentIncome + SavedTime;//累积从i到j的合并开销和收益权衡
-                candidateList.add(new long[]{i, j, (long) currentIncome}); //这里似乎是以下标的方式，记录两两文件的互相之间，reward
-            }
-        }
-        // get the tuple with max reward among candidate list
-        long[] maxTuple = new long[]{0, 0, 0L};
-        for (long[] tuple : candidateList) { //这里是分析，取出两两之间，ij可能是记录的范围，总之是对比哪一组收益更大
-            if (tuple[2] >= maxTuple[2]) {//如果后面有更新的，那么优先考虑新文件，所以采用了等于号
-                maxTuple = tuple;
-            }
-        }
-        TsFileResource currentFile;
-        List<TsFileResource> YaosselectedFiles = new ArrayList<>();//根据合并受益，选择被合并的候选文件
-        if (!overlappedList.isEmpty()){//如果有文件才执行，以免系统一直报索引溢出的错误
-            for (int i = (int) maxTuple[0]; i <= maxTuple[1]; i++) { //把前面收益最大的那一个，对应的ij下标范围内的文件选择出来
-                currentFile = overlappedList.get(i);
-                YaosselectedFiles.add(overlappedList.get(i));//这个或许就是最终选择出来的文件
-                LOGGER.debug("Current File is {}, size is {}", currentFile, currentFile.getTsFileSize());
-                selectedFileSize += currentFile.getTsFileSize();
-                LOGGER.debug(
-                        "Add tsfile {}, current select file num is {}, size is {}",
-                        currentFile,
-                        YaosselectedFiles.size(),
-                        selectedFileSize);
-            }
-            if (YaosselectedFiles.size() >= 2 || selectedFileSize >= 200 ) {//先确保文件数量的正确性
-                //注意在选择完文件之后，需要合并的文件数最少得是3，文件合并数已经修改,现在怀疑是下面的数量不对//合并时候候选文件的数量如果为3，那么就合并，原本是30个合并
-                // submit the task
-                if (YaosselectedFiles.size() > 1) {//满足刷写条件之后，就封装这一批文件到任务队列中
-                    taskPriorityQueue.add(new Pair<>(new ArrayList<>(YaosselectedFiles), selectedFileSize));
-                }
-                //selectedFileSize = 0L;//目前算法每次调用时，只封装生成一个合并任务，原本的是在一层中搜索多次，一次搜索封装多个任务
-                //因为，只搜索一次，
-                shouldContinueToSearch = false;
-            }
-        }
-        return shouldContinueToSearch;
+
+
     }
 
     private int searchMaxFileLevel() throws IOException {
@@ -854,6 +899,104 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                         selectedFileList,
                         sequence);
         return CompactionTaskManager.getInstance().addTaskToWaitingQueue(compactionTask);
+    }
+
+    private void readMultiFileDataWithoutValues(
+            TsFileResource tsFileResource,
+            ArrayList<Long> timeList,
+            ArrayList<ArrayList<Boolean>> bitmapLists,
+            ArrayList<String> schemaList) {
+        try {
+            List<TsFileResource> unseqFileResources = new ArrayList<>();
+            unseqFileResources.add(tsFileResource);
+            long queryId = QueryResourceManager.getInstance().assignCompactionPrefetchQueryId();
+            QueryContext queryContext = new QueryContext(queryId);
+            QueryDataSource queryDataSource = new QueryDataSource(new ArrayList<>(), unseqFileResources);
+            QueryResourceManager.getInstance()
+                    .getQueryFileManager()
+                    .addUsedFilesForQuery(queryId, queryDataSource);
+            MultiTsFileDeviceIterator deviceIterator = new MultiTsFileDeviceIterator(unseqFileResources);
+            //在deviceIterator中可以加载到文件的元数据，可以读取到元数据在文件内的偏移量，里面有个deviceIteratorMap有元数据的位置
+            while (deviceIterator.hasNextDevice()) {
+                Pair<String, Boolean> deviceInfo = deviceIterator.nextDevice();
+                String device = deviceInfo.left;
+                boolean isAligned = deviceInfo.right;
+                QueryUtils.fillOrderIndexes(queryDataSource, device, true);
+
+                if (isAligned) { //合并时候，默认处理对齐的那些序列，不是对齐序列不处理，直接跳过非对齐部分，所以在对应的客户端里面，也都是写入的对齐序列
+                    Map<String, MeasurementSchema> schemaMap = deviceIterator.getAllSchemasOfCurrentDevice(); //获取1个设备当中，所有序列里面对应的schema
+                    List<IMeasurementSchema> measurementSchemas = new ArrayList<>(schemaMap.values());
+                    if (measurementSchemas.isEmpty()) {
+                        return;
+                    }
+                    List<String> existedMeasurements =
+                            measurementSchemas.stream()
+                                    .map(IMeasurementSchema::getMeasurementId)
+                                    .collect(Collectors.toList());//似乎是从schema中过滤获得到所有的 传感器名称
+                    for (String schema : existedMeasurements) {//记录所有时间序列的列名
+                        schemaList.add(schema);
+                    }
+                    IBatchReader dataBatchReader =
+                            //              constructReader(
+                            constructPrefetchReader(//为这一个设备
+                                    device,
+                                    existedMeasurements,
+                                    measurementSchemas,
+                                    schemaMap.keySet(),
+                                    queryContext,
+                                    queryDataSource,
+                                    true);
+
+                    for (int i = 0; i < existedMeasurements.size(); i++) {
+                        bitmapLists.add(new ArrayList<>());
+                    }//为设备里面的每一个序列，都预设一个bitmaplist，用来存储里面的bitmap
+
+                    if (dataBatchReader.hasNextBatch()) {
+                        while (dataBatchReader.hasNextBatch()) {
+                            BatchData batchData = dataBatchReader.nextBatch();
+                            while (batchData.hasCurrent()) {
+                                long time = batchData.currentTime();
+                                timeList.add(time);
+                                TsPrimitiveType[] value = (TsPrimitiveType[]) batchData.currentValue();
+                                for (int j = 0; j < value.length; j++) { //目前感觉是判断每一条序列里面，哪一些是空的，也就是没有被很好的对齐的那些
+                                    if (value[j] == null) {
+                                        bitmapLists.get(j).add(false);
+                                    } else {
+                                        bitmapLists.get(j).add(true);
+                                    }
+                                }
+                                batchData.next();
+                            }
+                        }
+                    }
+                }
+                tsFileResource.readUnlock();
+            }
+        } catch (Exception e) {
+            LOGGER.error("Exception occurs while reading multiple file data", e);
+        }
+    }
+
+    public static IBatchReader constructPrefetchReader(
+            String deviceId,
+            List<String> measurementIds,
+            List<IMeasurementSchema> measurementSchemas,
+            Set<String> allSensors,
+            QueryContext queryContext,
+            QueryDataSource queryDataSource,
+            boolean isAlign)
+            throws IllegalPathException {
+        PartialPath seriesPath; //这里是设备名称
+        TSDataType tsDataType;
+        if (isAlign) {
+            seriesPath = new AlignedPath(deviceId, measurementIds, measurementSchemas);//拿到对齐设备的路径全名称，里面还记载了内部所有设备的元数据
+            tsDataType = TSDataType.VECTOR;
+        } else {
+            seriesPath = new MeasurementPath(deviceId, measurementIds.get(0), measurementSchemas.get(0));
+            tsDataType = measurementSchemas.get(0).getType();
+        }
+        return new SeriesRawDataPrefetchReader(
+                seriesPath, allSensors, tsDataType, queryContext, queryDataSource, null, null, null, true);
     }
 
     private class SizeTieredCompactionTaskComparator

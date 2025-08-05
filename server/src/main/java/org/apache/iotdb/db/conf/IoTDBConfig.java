@@ -377,7 +377,7 @@ public class IoTDBConfig {
   private boolean enableSeqSpaceCompaction = true;
 
   /** Enable inner space copaction for unsequence files */
-  private boolean enableUnseqSpaceCompaction = true;// 先暂时关闭 各种空间的合并，
+  private boolean enableUnseqSpaceCompaction = false;// 先暂时关闭 各种空间的合并，
 
   /** Compact the unsequence files into the overlapped sequence files 合并启动与否的参数控制位置*/
   private boolean enableCrossSpaceCompaction = false;
@@ -443,10 +443,10 @@ public class IoTDBConfig {
   private long maxCrossCompactionCandidateFileSize = 1024 * 1024 * 1024 * 5L;
 
   /** 控制合并执行的时间间隔，The interval of compaction task schedulation in each virtual storage group. The unit is ms. */
-  private long compactionScheduleIntervalInMs = 600_000L;
+  private long compactionScheduleIntervalInMs = 60_000L;
 
   /** The interval of compaction task submission from queue in CompactionTaskMananger */
-  private long compactionSubmissionIntervalInMs = 600_000L;
+  private long compactionSubmissionIntervalInMs = 60_000L;
 
   /**
    * The number of sub compaction threads to be set up to perform compaction. Currently only works

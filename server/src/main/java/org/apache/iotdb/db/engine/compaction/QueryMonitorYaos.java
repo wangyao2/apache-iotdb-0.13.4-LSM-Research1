@@ -1,6 +1,7 @@
 package org.apache.iotdb.db.engine.compaction;
 
 import org.apache.iotdb.db.conf.IoTDBConstant;
+import org.apache.iotdb.db.engine.storagegroup.TsFileResource;
 import org.apache.iotdb.db.qp.physical.crud.*;
 import org.apache.iotdb.db.query.context.QueryContext;
 import org.apache.iotdb.tsfile.read.expression.IExpression;
@@ -40,7 +41,7 @@ public class QueryMonitorYaos {
             LoggerFactory.getLogger(IoTDBConstant.COMPACTION_LOGGER_NAME);
 
     private static ArrayList<int[]> FilesNumInOneQuery= new ArrayList<>();//记录连续查询中，读取了多少个文件，用来统计文件数，里面的数组，一定是三元组，顺序文件数，乱序文件数，总数
-
+    private static HashMap<TsFileResource, Integer> FilsHotMap = new HashMap<TsFileResource, Integer>();//记录查询过程中的文件访问热度
     private static ArrayList<QueryPlan> QueryQRList = new ArrayList<>();//每一个新到达的query都添加进来作为备用
     private static ArrayList<QueryContext> ContextCTList = new ArrayList<>();//每一个新到达的query都添加进来作为备用
 
@@ -89,6 +90,19 @@ public class QueryMonitorYaos {
         int[] FileInvovledInOnQUEY = {seqFileNum, UnseqFileNum, totalfileNum};
         FilesNumInOneQuery.add(FileInvovledInOnQUEY);//记录一个查询中涉及到的文件数量
         //QueryRWlock.writeLock().unlock();
+    }
+
+    public void recordFilesHot(List<TsFileResource> seqFiles, List<TsFileResource> unseqFiles) {
+        // 记录一次查询中，每一个文件被访问的热度
+        for (TsFileResource seqFile : seqFiles) {
+            Integer currentCount = FilsHotMap.getOrDefault(seqFile, 0);
+            FilsHotMap.put(seqFile, currentCount + 1);// 增加访问次数并更新映射
+        }
+        for (TsFileResource unseqFile : unseqFiles) {
+            Integer currentCount = FilsHotMap.getOrDefault(unseqFile, 0);
+            FilsHotMap.put(unseqFile, currentCount + 1);// 增加访问次数并更新映射
+        }
+        System.out.println("记录文件的访问热度...，文件总数："  + (seqFiles.size() + unseqFiles.size()));
     }
 
     /**

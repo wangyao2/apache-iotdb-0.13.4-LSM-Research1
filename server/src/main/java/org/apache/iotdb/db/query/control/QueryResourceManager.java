@@ -114,6 +114,13 @@ public class QueryResourceManager {
     externalSortFileMap.computeIfAbsent(queryId, x -> new ArrayList<>()).add(deserializer);
   }
 
+  public long assignCompactionPrefetchQueryId() {
+    long threadNum = 10;
+    long queryId = Long.MIN_VALUE + threadNum;
+    filePathsManager.addQueryId(queryId);
+    return queryId;
+  }
+
   /**
    * The method is called in mergeLock() when executing query. This method will get all the
    * QueryDataSource needed for this query and put them in the cachedQueryDataSourcesMap.

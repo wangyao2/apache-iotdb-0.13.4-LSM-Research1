@@ -584,7 +584,7 @@ public class VirtualStorageGroupProcessor {
                 + virtualStorageGroupId);
     timedCompactionScheduleTask.scheduleWithFixedDelay(
         this::executeCompaction,
-        COMPACTION_TASK_SUBMIT_DELAY,
+        COMPACTION_TASK_SUBMIT_DELAY,//这里原本是20 * 1000的，但是被我修改成2000 * 1000ms了
         IoTDBDescriptor.getInstance().getConfig().getCompactionScheduleIntervalInMs(),//临时被修改成了10分钟
         TimeUnit.MILLISECONDS);
   }
@@ -1809,7 +1809,8 @@ public class VirtualStorageGroupProcessor {
       int seqFileNum = seqResources.size();
       int UnseqFileNum = unseqResources.size();
       QueryMonitorYaos monitorYaos = QueryMonitorYaos.getInstance();//每一次执行查询的时候，都把
-      monitorYaos.addFilsNum(seqFileNum, UnseqFileNum);
+      //monitorYaos.addFilsNum(seqFileNum, UnseqFileNum);//通过全局监视器，记录当前
+      monitorYaos.recordFilesHot(seqResources, unseqResources);//记录每一个文件在这段区间内的访问热度。
       int[] FileInvovledInOnQUEY = {seqFileNum, UnseqFileNum, seqFileNum + UnseqFileNum};
       //todo 2 伴随着查询把查询涉及到的文件输出去
       try (BufferedWriter writer = new BufferedWriter(new FileWriter("FilesInvovledInQuerys.csv", true))) {
