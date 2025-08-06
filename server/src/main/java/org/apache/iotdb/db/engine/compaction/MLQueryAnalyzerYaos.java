@@ -1,5 +1,6 @@
 package org.apache.iotdb.db.engine.compaction;
 import weka.classifiers.Classifier;
+import weka.classifiers.functions.LinearRegression;
 import weka.classifiers.trees.RandomForest;
 import weka.core.*;
 import weka.core.converters.ConverterUtils.DataSource;
@@ -21,7 +22,7 @@ public class MLQueryAnalyzerYaos {
 
     SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");;
     private static final MLQueryAnalyzerYaos MLINSTANCE = new MLQueryAnalyzerYaos();
-
+    private long[] NextK_Step = new long[2];
     //记录一批（一组）查询结果的特征，用于构造训练集的准备
     private static ArrayList<QueryMonitorYaos.FeatureofGroupQuery> QuerySegmentFeatures = new ArrayList<>();
     private String Arrtibutes = "groupNum,start_mean,start_varian,end_mean,end_varian,QBegintime_mean,QBegintime_Varian,targetStartTime";
@@ -267,37 +268,35 @@ public class MLQueryAnalyzerYaos {
         train_SpiltData_StartTime.randomize(new java.util.Random(0)); // 训练集打散
         train_SpiltData_EndTime.randomize(new java.util.Random(0)); // 训练集打散
 
+        // （1）起始时间段预测模型构建 StartTime
         RandomForest model_StartTime = new RandomForest();
-
+        LinearRegression LRModel_StartTime = new LinearRegression();
         model_StartTime.buildClassifier(train_SpiltData_StartTime);
-
+        LRModel_StartTime.buildClassifier(train_SpiltData_StartTime);
+        // (2)结束时间预测模型构建 EndTime
         RandomForest model_EndTime = new RandomForest();
+        LinearRegression LRModel_EndTime = new LinearRegression();
         model_EndTime.buildClassifier(train_SpiltData_EndTime);
-
+        LRModel_EndTime.buildClassifier(train_SpiltData_EndTime);
 
         //3 给出预测结果
         Instance StartTime_lastInstance = TranningData.lastInstance();
-        System.out.println("被预测样本：" + StartTime_lastInstance);
         double Predicted_startTime = model_StartTime.classifyInstance(StartTime_lastInstance);
-        System.out.println("预测结果：" + Predicted_startTime);
-
+        double LR_Predicted_StartTime = LRModel_StartTime.classifyInstance(StartTime_lastInstance);
+        System.out.println("被预测样本,startTime：" + StartTime_lastInstance);
+        System.out.println("RF预测结果,startTime：" + Predicted_startTime + " ；LR预测结果： " + LR_Predicted_StartTime);
         startTime_And_EndTime[0] = (long) Predicted_startTime;
-        //++++++++++++++++++++前面预测++++++下一个查询涉及的起始时间++++++++++++++++++
-        //++++++++++++++++++++下面预测++++++下一个查询涉及的起始时间++++++++++++++++++
 
         Instance EndTime_lastInstance = TranningData_EndTime.lastInstance();
-        System.out.println("被预测样本，endtime：" + EndTime_lastInstance);
         double Predicted_endTime = model_EndTime.classifyInstance(EndTime_lastInstance);
-        System.out.println("预测结果，endtime：" + Predicted_endTime);
-        //结束时间的跨步预测
+        double LR_Predicted_EndTime = LRModel_EndTime.classifyInstance(EndTime_lastInstance);
+        System.out.println("被预测样本, endtime：" + EndTime_lastInstance);
+        System.out.println("RF预测结果,endtime：" + Predicted_endTime + " ；LR预测结果： " + LR_Predicted_EndTime);
         startTime_And_EndTime[1] = (long) Predicted_endTime;
 
         //++++++++++++++++++++多步预测++++++再向后面去预测一步查询可能涉及的文件++++++++++++++++++
         double[] newArray_filledWithTarget = new double[ArrtSize];//这里填入target标签的长度，整个样本的长度已经
-        Instance StartTime_last1 = TranningData.instance(TranningData.size() - 2);
-        //我们用StartTime_lastInstance和StartTime_last1，以及预测的结果，组成新的样本，再预测一组出来，手动填充样本数据
-
-        newArray_filledWithTarget[0] = StartTime_lastInstance.value(0) + 1;//序号 +1
+        newArray_filledWithTarget[0] = StartTime_lastInstance.value(0) + 1;//序号样本 +1
 
         newArray_filledWithTarget[1] = StartTime_lastInstance.value(4);
         newArray_filledWithTarget[2] = StartTime_lastInstance.value(5);
@@ -307,40 +306,25 @@ public class MLQueryAnalyzerYaos {
         newArray_filledWithTarget[5] = StartTime_lastInstance.value(8);
         newArray_filledWithTarget[6] = StartTime_lastInstance.value(9);
 
-        newArray_filledWithTarget[7] = Predicted_startTime;//最后一组填写预测值
-        newArray_filledWithTarget[8] = Predicted_endTime;
+        newArray_filledWithTarget[7] = Predicted_startTime;//预测值填写进来
+        newArray_filledWithTarget[8] = Predicted_endTime; //预测值填写进来
         newArray_filledWithTarget[9] = (StartTime_lastInstance.value(6) + StartTime_lastInstance.value(9)) / 2;
 
         newArray_filledWithTarget[10] = 0;
-        TranningData.add(new DenseInstance(1.0, newArray_filledWithTarget));
+        TranningData.add(new DenseInstance(1.0, newArray_filledWithTarget));//获取新创建的样本进来
+        Instance nextStpeInstance = TranningData.lastInstance();//获取新创建的样本进来
 
-        Instance nextStpeInstance = TranningData.lastInstance();
-        double next1Start = model_StartTime.classifyInstance(nextStpeInstance);
-        double next1End = model_EndTime.classifyInstance(nextStpeInstance);
+        double RF_next1Start = model_StartTime.classifyInstance(nextStpeInstance);
+        double RF_next1End = model_EndTime.classifyInstance(nextStpeInstance);
 
-        QuerySegmentFeatures.clear();//这个列表的清空，也会导致QueryMonitor中的元素清空
+        double LR_nextStart = LRModel_StartTime.classifyInstance(nextStpeInstance);
+        double LR_nextEnd = LRModel_EndTime.classifyInstance(nextStpeInstance);
+
+        NextK_Step[0] = (long)LR_nextStart;
+        NextK_Step[1] = (long)LR_nextEnd;
+
+        QuerySegmentFeatures.clear();
         return startTime_And_EndTime;
-    }
-
-    /**
-     * 对外暴露，暂时不启用，训练模型，通过聚类等方法获取最近一批查询密度最高的地方，这一部分由负载收集器去处理
-     */
-    public long[] ClusteringTheCurrentQueryRrange() {
-        long[] startTime_And_EndTime = new long[2];
-        startTime_And_EndTime[0] = 0;
-        startTime_And_EndTime[1] = 0;
-        return startTime_And_EndTime;
-    }
-
-    /**
-     * 把查询负载监视器收集到的封装成可以训练的数据集
-     */
-    private void constructTranningDataSet(){
-
-    }
-
-    private void predictTheFuture(){
-
     }
 
     public static void main(String[] args) throws Exception {
@@ -432,4 +416,12 @@ public class MLQueryAnalyzerYaos {
 //        }
     }
 
+    //使用构建好的模型，做多步预测，分析后续可能的热点范围，多步预测已经在单步预测阶段完成了，直接输出就行
+    public long[] PredictNext_K_Step(int i) {
+        long[] ExpandHotRange = new long[2];//扩展的热点范围，就两个长度，第一个对应
+        ExpandHotRange[0] = 1;
+        ExpandHotRange[1] = 2;//先不管前面的内容
+
+        return NextK_Step; //构建模型的时候，已经提前做好了多步预测，直接返回结果即可
+    }
 }

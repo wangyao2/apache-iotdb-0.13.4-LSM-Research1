@@ -131,8 +131,9 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
         ArrayList<QueryMonitorYaos.FeatureofOneQuery> queryFeaturesMeanShiftList = QueryMonitorYaos.getQueryFeaturesMeanShiftList();
         if (!queryFeaturesMeanShiftList.isEmpty()){//用来打印显示一些数据
             try {
-                System.out.println("meanshift" + queryFeaturesMeanShiftList.get(0));//这里读0就是，meanshift方法
-                System.out.println("centorid" + queryFeaturesMeanShiftList.get(1));//这里读1就是，质心法方法
+                System.out.println(">>Meanshift: " + queryFeaturesMeanShiftList.get(0));//这里读0就是，meanshift方法
+                System.out.println(">>Centorid: " + queryFeaturesMeanShiftList.get(1));//这里读1就是，质心法方法
+                System.out.println(">>Bucket: " + queryFeaturesMeanShiftList.get(2));//这里读1就是，质心法方法
             }catch (IndexOutOfBoundsException e){
                 e.printStackTrace();
                 System.out.println("可能只开启了一种聚类分析方法，没有完全读取到！");
@@ -156,10 +157,10 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
             try {//处理训练模型时发生的异常
                 //predictedStartimeAndEndTime = MLAnalyzer.TranningAndPredict();//预测即将会被访问到的数据，单步预测
                 //todo 关闭预测算法，使用传统策略，注释掉预测分析下面这一行，这样会采用默认的策略
-                //predictedStartimeAndEndTime = MLAnalyzer.TranningAndPredictWithMoreStepAndFeatures();//预测即将会被访问到的数据
+                predictedStartimeAndEndTime = MLAnalyzer.TranningAndPredictWithMoreStepAndFeatures();//预测即将会被访问到的数据
                 //ClusteredStartimeAndEndTime = MLAnalyzer.ClusteringTheCurrentQueryRrange();//汇总当前被访问到的数据，已经改掉了，现在是借助查询分析器去找负载中心
 
-                predited_Startime = predictedStartimeAndEndTime[0];
+                predited_Startime = predictedStartimeAndEndTime[0]; //todo 这里报变量值不变，需要思考原因.....
                 predited_Endtime = predictedStartimeAndEndTime[1];//获得预测的下一个时间段，哪些数据可能被访问到
 
                 Clustered_Startime = (long) Clustered_startTimeSum_InetvalTimeSum_EndTimeSum[0];
@@ -173,7 +174,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                 System.out.println("根据当前批次收集的查询负载，分析完成，finally处理..");
             }
         }else {
-            LOGGER.info("文件选择器：没有收集到足够的查询负载");
+            LOGGER.info("文件选择器：没有收集到足够的查询负载");//没有足够的查询，是否考虑直接返回，还是选择使用旧策略
         }
         //monitorYaos.clearFeatures();//在前面拿到特征之后，清空所有的元素
 
@@ -232,7 +233,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
 //            queryTimeEnd = 1707164353000L;//临时放置
 //            queryTimeInterval = queryTimeEnd - queryTimeStart;，补充在这里，time tiered方法对于间隔值的计算，不能用重叠分析的
                 for (int currentLevel = 0; currentLevel <= maxLevel; currentLevel++) {
-                    if (!selectLevelTask_byYaos_V1(currentLevel, taskPriorityQueue)) {
+                    if (!selectLevelTask_byYaos_V2(currentLevel, taskPriorityQueue)) {
                     //if (!selectLevelTask_TimeTiered(currentLevel, taskPriorityQueue, cluster_queryTimeStart, cluster_queryTimeEnd)) {
                         System.out.println("选中了1批文件：" + taskPriorityQueue.size());
                         //如果在一层中找到了至少一批可以合并的文件，那么就终止，不再判断上面其他层级了
@@ -278,7 +279,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
             }
         }
         long CodeEndtTime = System.currentTimeMillis();
-        System.out.println("2文件选择算法耗时，程序的运行时间是: ");//在做实验时间记录的时候，为了只记录代码的计算时间，不做合并相关的操作，暂时注释掉合并任务的提交
+        System.out.println("PreS文件选择算法耗时，程序的运行时间是: ");//在做实验时间记录的时候，为了只记录代码的计算时间，不做合并相关的操作，暂时注释掉合并任务的提交
         System.out.println(CodeEndtTime - CodestartTime);
     }
 
@@ -288,6 +289,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
      * 填充结果写入到全局变量
      */
     private Pair<Long, Long> Overlapanalysis_BetweenClusterAnd(long ct1, long ct2, long ft3, long ft4) {
+        //todo 2025-8-5，需要进一步设计，如何考虑 热点区间和 预测区间之间的关系。多角度考虑
         long ctInterval = ct2 - ct1;
         long ftInterval = ft4 - ft3;
         long candidateQvStart = 0;
@@ -668,7 +670,7 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
         long selectedFileSize = 0L;
         long targetCompactionFileSize = config.getTargetCompactionFileSize(); // 1GB的字节
         int M = config.getMaxInnerCompactionCandidateFileNum();//定义可参与合并的文件数量
-        ////==========核心逻辑的编码位置=================
+        ////==========核心逻辑的编码位置================= todo  2025-08-05 有一个核心问题需要考虑，就是是否需要把候选文件资源，限制到当前层
         List<TsFileResource> CurrentLevelFileList = new ArrayList<>();//当前层所有文件
         for (TsFileResource currentFile : tsFileResources) {//在这里就被封装成多个批次了
             TsFileNameGenerator.TsFileName currentName = TsFileNameGenerator.getTsFileName(currentFile.getTsFile().getName());
@@ -714,21 +716,79 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
                 }//在这里每一个文件都对应一个timeLists、allBitmapLists和schemaLists中的一个位置。这是一个二维的list结构，但是怎么个对应关系还有待考察
             }
             // 1.2 从按照数据的重叠度选择重叠度高的文件加载
-            List<TsFileResource> resourceList = FinedSelectFilesForM(overlappedList, M);
+            List<TsFileResource> resourceList = FinedSelectFilesInM(overlappedList, M);
             taskPriorityQueue.add(new Pair<>(new ArrayList<>(resourceList), 0L));//直接提交文件
             shouldContinueToSearch = false;
         }else {
         //todo 2 如果重叠文件数小于 < M，那么就从其他候选文件中填充
-            //选择被合并的候选文件
+            // 0 这M个文件，一定要先合并起来，因为已经是热点了。
+            List<TsFileResource> YaosResourceList = new ArrayList<>(overlappedList);//通过对象引用创建的，先确保，热点范围内的文件，一定被选中了，然后再考虑其他的
 
-            ExpandSelectFilesForM(CurrentLevelFileList);
+            // 1 使用多步预测方法，扩大热点范围继续选择文件
+            MLQueryAnalyzerYaos MLAnalyzer = MLQueryAnalyzerYaos.getInstance();
+            long[] predictNext_k_step = MLAnalyzer.PredictNext_K_Step(5);//todo， 这一个多步预测还不完善，还需要考虑更多才行
+
+            queryTimeStart = predictNext_k_step[0];
+            queryTimeEnd = predictNext_k_step[1];
+            // 2 扩展查询范围后，再次计算重叠文件
+            List<TsFileResource> ExpandEdOverlappedList = calculateOverlappedList(tsFileResources, level);//这个函数里面已经使用了外面的全局变量用户期望的查询时间段
+
+            // 3 先扩展范围，填充文件—— 把新范围的文件添加到当前队列中，一直扩充到M个文件
+            Set<TsFileResource> existingFilesSet = new HashSet<>(YaosResourceList);
+            int currentSize = YaosResourceList.size();
+            for (TsFileResource newFile : ExpandEdOverlappedList) {
+                if (existingFilesSet.contains(newFile)) continue;
+                if (currentSize >= M) break; // 检查是否已达到最大大小限制
+                YaosResourceList.add(newFile);
+                existingFilesSet.add(newFile); // 更新引用集合
+                currentSize++;
+            }
+            if (YaosResourceList.size() >= M){//扩充范围后，已经能够包含足够多的文件了，那么就退出
+                System.out.println("通过扩展区间，已经找到了M个文件...跳过后面的使用热点文件填充...");
+                taskPriorityQueue.add(new Pair<>(new ArrayList<>(YaosResourceList), selectedFileSize));//直接提交文件
+                return false;
+            }
+
+            // 4 再按照文件热度扩充文件——当前文件数量仍然不足M个，那么就从其他的，按照文件热度凑文件过来
+            HashMap<TsFileResource, Integer> FilesHotMap = QueryMonitorYaos.getFilsHotMap();
+            List<Map.Entry<TsFileResource, Integer>> entryList = new ArrayList<>(FilesHotMap.entrySet());
+            Collections.sort(entryList, new Comparator<Map.Entry<TsFileResource, Integer>>() {
+                @Override            // 自定义排序规则
+                public int compare(Map.Entry<TsFileResource, Integer> entry1,
+                                   Map.Entry<TsFileResource, Integer> entry2) {
+                    int heatCompare = Integer.compare(entry2.getValue(), entry1.getValue());// 1. 主要排序：热度值降序（高的在前）
+                    if (heatCompare != 0) {
+                        return heatCompare;
+                    }
+                    long endTime1 = entry1.getKey().getTimeIndex().getMaxEndTime();// 2. 次要排序：文件结束时间降序（大的在前）
+                    long endTime2 = entry2.getKey().getTimeIndex().getMaxEndTime();
+                    return Long.compare(endTime2, endTime1);
+                }
+            });
+            for (Map.Entry<TsFileResource, Integer> entry : entryList) {//这个是已经按照顺序排列好了
+                TsFileResource HotfileResource = entry.getKey();//热力值文件
+                if (!existingFilesSet.contains(HotfileResource)){//热力文件，没有在被选中的里面，那么就加入到候选文件中
+                    if (YaosResourceList.size() >= M) break; // 检查是否已达到最大大小限制
+                    YaosResourceList.add(HotfileResource);
+                    existingFilesSet.add(HotfileResource); // 更新引用集合
+                }
+            }
+            // 5 能进入到这个选择策略里面，就说明，肯定能选出来M个文件不用考虑选择的文件数量不够
+            taskPriorityQueue.add(new Pair<>(new ArrayList<>(YaosResourceList), selectedFileSize));//直接提交文件
         }
-
+        QueryMonitorYaos.clearFileHotMap(); // 选择完毕文件后，才能清除当前轮次的 文件热力值 图
         return shouldContinueToSearch;
     }
 
-    private List<TsFileResource> FinedSelectFilesForM(List<TsFileResource> overlappedList, int M){
-        //todo 1 计算所有文件的区间重叠度
+    //情况（1）对于热点文件数大于M，那么就从M个文件中择优选择恰好M个出来
+    private List<TsFileResource> FinedSelectFilesInM(List<TsFileResource> overlappedList, int M){
+        //todo 1 计算所有文件的区间重叠度，还有一些细节要考虑
+        /*
+         考虑的细节有
+          1 数据是否均匀分布，对于乱序数据，他肯定是不均匀的。简单的区间不能表示热点覆盖度
+          2 文件长度，不一致，比例问题，比如说，一个文件太小了相比其他的
+          3 对于列组文件，可以用时间范围表示，但是对于 普通的单列模式文件， 是否考虑用统计频次的方式来计算热度呢
+         */
         Map<TsFileResource, Double> fileHeatCoverageMap = new HashMap<>(); // 存储每个文件的热点覆盖比例
         for (int i = 0; i < overlappedList.size(); i++) { //遍历每一个和时间范围有交叉的文件，在张lz的算法中，只有一个for循环，没有外层的循环，已经改成对应的单个for循环了
             TsFileResource tsFileResource  = overlappedList.get(i);
@@ -767,7 +827,8 @@ public class YaosSizeCompactionSelector extends AbstractInnerSpaceCompactionSele
         return resourceList;
     }
 
-    private void FinedSelectFilesForM(List<TsFileResource> overlappedList, ArrayList<ArrayList<Long>> timeLists){
+    //情况（1） 文件数远大于M，通过加载精确的时间戳，来计算文件对热点的贡献度
+    private void FinedSelectFilesInM(List<TsFileResource> overlappedList, ArrayList<ArrayList<Long>> timeLists){
         //todo 1 计算所有文件的区间重叠度
         for (int i = 0; i < overlappedList.size(); i++) { //遍历每一个和时间范围有交叉的文件，在张lz的算法中，只有一个for循环，没有外层的循环，已经改成对应的单个for循环了
             TsFileResource FirsttsFileResource = overlappedList.get(i);

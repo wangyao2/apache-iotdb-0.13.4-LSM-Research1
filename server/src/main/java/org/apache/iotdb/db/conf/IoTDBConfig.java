@@ -443,10 +443,10 @@ public class IoTDBConfig {
   private long maxCrossCompactionCandidateFileSize = 1024 * 1024 * 1024 * 5L;
 
   /** 控制合并执行的时间间隔，The interval of compaction task schedulation in each virtual storage group. The unit is ms. */
-  private long compactionScheduleIntervalInMs = 60_000L;
+  private long compactionScheduleIntervalInMs = 600_000L;
 
   /** The interval of compaction task submission from queue in CompactionTaskMananger */
-  private long compactionSubmissionIntervalInMs = 60_000L;
+  private long compactionSubmissionIntervalInMs = 600_000L;
 
   /**
    * The number of sub compaction threads to be set up to perform compaction. Currently only works

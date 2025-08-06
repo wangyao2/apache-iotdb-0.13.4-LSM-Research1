@@ -584,7 +584,7 @@ public class VirtualStorageGroupProcessor {
                 + virtualStorageGroupId);
     timedCompactionScheduleTask.scheduleWithFixedDelay(
         this::executeCompaction,
-        COMPACTION_TASK_SUBMIT_DELAY,//这里原本是20 * 1000的，但是被我修改成2000 * 1000ms了
+        IoTDBDescriptor.getInstance().getConfig().getCompactionScheduleIntervalInMs(),//COMPACTION_TASK_SUBMIT_DELAY,//这里原本是静态的常量，我已经修改了，20 * 1000的，但是被我修改成2000 * 1000ms了
         IoTDBDescriptor.getInstance().getConfig().getCompactionScheduleIntervalInMs(),//临时被修改成了10分钟
         TimeUnit.MILLISECONDS);
   }

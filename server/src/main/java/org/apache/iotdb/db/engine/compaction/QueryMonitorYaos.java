@@ -68,6 +68,10 @@ public class QueryMonitorYaos {
         return QueryFeaturesGloablList;
     }
 
+    public static HashMap<TsFileResource, Integer> getFilsHotMap() {
+        return FilsHotMap;//记录文件的访问热度
+    }
+
     public void addAquery(QueryPlan queryPlan, QueryContext context) {
         //每次执行查询时，都把查询涉及到的设备和时间范围捕获过来，拿到
         //LOGGER.debug("接收到查询请求！ - {}", queryPlan);
@@ -95,11 +99,11 @@ public class QueryMonitorYaos {
     public void recordFilesHot(List<TsFileResource> seqFiles, List<TsFileResource> unseqFiles) {
         // 记录一次查询中，每一个文件被访问的热度
         for (TsFileResource seqFile : seqFiles) {
-            Integer currentCount = FilsHotMap.getOrDefault(seqFile, 0);
+            int currentCount = FilsHotMap.getOrDefault(seqFile, 0);
             FilsHotMap.put(seqFile, currentCount + 1);// 增加访问次数并更新映射
         }
         for (TsFileResource unseqFile : unseqFiles) {
-            Integer currentCount = FilsHotMap.getOrDefault(unseqFile, 0);
+            int currentCount = FilsHotMap.getOrDefault(unseqFile, 0);
             FilsHotMap.put(unseqFile, currentCount + 1);// 增加访问次数并更新映射
         }
         System.out.println("记录文件的访问热度...，文件总数："  + (seqFiles.size() + unseqFiles.size()));
@@ -202,16 +206,16 @@ public class QueryMonitorYaos {
 //            }
 //        });
         CollectedueryFeaturesList.addAll(NewQueryFeaturesList);//长久的保存用户提交的历史查询数据
-        GROUP_SIZE_Dynamic();
+        //GROUP_SIZE_Dynamic();
         //ConvertTheQueryListToSegmentFeatures();//使用分析方法，把收到的查询负载解析成很多特征和标签样式
-        ConvertTheQueryListToSegmentFeatures_WithHistory();
+        ConvertTheQueryListToSegmentFeatures_WithHistory();//使用所有历史数据计算特征
         analyzeTheGolableFeatures_UsingMeanShift();//使用方法分析，收集负载的特征，把负载解析成几个类型的特征，存储到QueryFeaturesGloablList内
         analyzeTheGolableFeatures_UsingNormalCentroid();
+        List<long[]> theHotRangeUsingBucket = analyzeTheHotRange_UsingBucket();// 2025-8 新增，使用分桶方法计算当前查询的热点区间
         //DirectilyOutputTheQueryFeatureToCsv_asTranningSample();//把收集到的负载写入到csv文件里
-        QueryFeaturesList.clear();//分析完一批之后，就保存起来，以便后续分析
+        QueryFeaturesList.clear();//记录当前合并间隔的查询特征
         QueryQRList.clear();
         ContextCTList.clear();
-
         System.out.println("Query Monitor has finished the Spilt Query List !");
     }
 
@@ -340,9 +344,9 @@ public class QueryMonitorYaos {
     }
 
     public static ArrayList<FeatureofOneQuery> getQueryFeaturesMeanShiftList() {
-        if (!QueryFeaturesMeanShiftList.isEmpty()){
-            System.out.println(QueryFeaturesMeanShiftList.get(0));
-        }
+//        if (!QueryFeaturesMeanShiftList.isEmpty()){
+//            System.out.println(QueryFeaturesMeanShiftList.get(0));
+//        }
         return QueryFeaturesMeanShiftList;
     }
 
@@ -365,6 +369,142 @@ public class QueryMonitorYaos {
         System.out.println("MeanShift求解结果：" + "↑↑↑↑");
     }
 
+    private List<long[]> analyzeTheHotRange_UsingBucket() {
+        // ==================== 1. 参数初始化 ====================
+        // 重要：这些参数需要根据实际业务场景调整优化
+        //long BUCKET_SIZE_MS = 5 * 60 * 1000;       // 5分钟桶大小（工业时序场景常用）
+        final double HEAT_THRESHOLD_K = 2.5;             // 阈值系数 (μ + kσ)
+        final long MIN_HOT_DURATION = 15 * 60 * 1000;    // 最小热点持续15分钟
+        final double SMOOTHING_STD_DEV = 1.5;            // 高斯平滑标准差（1.0-2.0间）
+
+        // ==================== 2. 数据校验 ====================
+        if (QueryFeaturesList.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        // ==================== 3. 确定时间范围 ，就是所有查询涉及到的查询范围 ====================
+        long minTime = Long.MAX_VALUE;
+        long maxTime = Long.MIN_VALUE;
+
+        for (FeatureofOneQuery feature : QueryFeaturesList) {
+            minTime = Math.min(minTime, feature.startTime);
+            maxTime = Math.max(maxTime, feature.endTime);
+        }
+
+        // 限定分析最近数据（默认24小时），已经屏蔽掉了，不限制热点查询范围
+        //final long ANALYSIS_WINDOW = 24 * 60 * 60 * 1000L;
+        //minTime = Math.max(minTime, maxTime - ANALYSIS_WINDOW);
+
+        // ==================== 4. 分桶结构初始化 ====================
+        int numBuckets = 100;//
+        long BUCKET_SIZE_MS = (int) Math.ceil((double)(maxTime - minTime) / numBuckets);  //根据桶的数量，确定区间大小
+        int[] bucketCounts = new int[numBuckets];  // 桶计数数组
+
+        // ==================== 5. 直接计数统计（更直观） ====================
+        for (FeatureofOneQuery feature : QueryFeaturesList) {
+            // 跳过过期查询
+            if (feature.endTime < minTime) continue;
+            // 计算桶索引范围 [startIdx, endIdx]
+            int startIdx = (int) ((feature.startTime - minTime) / BUCKET_SIZE_MS);
+            int endIdx = (int) ((feature.endTime - minTime) / BUCKET_SIZE_MS);
+            // 边界安全处理
+            startIdx = Math.max(0, startIdx);
+            endIdx = Math.min(numBuckets - 1, endIdx);
+            // 直接为每个桶计数（更直观）
+            for (int i = startIdx; i <= endIdx; i++) {
+                bucketCounts[i]++;
+            }
+        }
+        // ==================== 6. 动态阈值计算 ====================
+        // 计算均值与标准差（使用原始计数）
+        double sum = 0;
+        for (int count : bucketCounts) {
+            sum += count;
+        }
+        double mean = sum / numBuckets;//访问次数的平均值
+
+        double sqDiffSum = 0;
+        for (int count : bucketCounts) {
+            sqDiffSum += Math.pow(count - mean, 2);
+        }
+        double stdDev = Math.sqrt(sqDiffSum / numBuckets);
+        final double heatThreshold = mean + 0 * stdDev;//可以被视作热点的桶范围，先把方差阈值关闭掉
+
+        // ==================== 7. 热点区间识别 ====================
+        List<long[]> hotIntervals = new ArrayList<>();
+        List<Integer> hotBucketIndices = new ArrayList<>();
+        // 标记热点桶
+        for (int i = 0; i < bucketCounts.length; i++) {
+            if (bucketCounts[i] >= heatThreshold) {//如果桶的访问次数大于前面统计的阈值，那么就
+                hotBucketIndices.add(i);
+            }
+        }
+        // 合并连续桶为热点区间
+        if (!hotBucketIndices.isEmpty()) {
+            int startIdx = hotBucketIndices.get(0);
+            int current = startIdx;
+
+            for (int i = 1; i < hotBucketIndices.size(); i++) {
+                if (hotBucketIndices.get(i) > current + 1) {
+                    // 遇到断点，提交当前区间
+                    addHotInterval(hotIntervals, startIdx, current,
+                            minTime, BUCKET_SIZE_MS, MIN_HOT_DURATION);
+                    startIdx = hotBucketIndices.get(i);
+                }
+                current = hotBucketIndices.get(i);
+            }
+            // 添加最后一个区间
+            addHotInterval(hotIntervals, startIdx, current,
+                    minTime, BUCKET_SIZE_MS, MIN_HOT_DURATION);
+        }
+        // 2. 合并重叠区间
+        mergeOverlappingIntervals(hotIntervals);
+        for (long[] hotRange : hotIntervals) {
+            long BucketStartTime = hotRange[0];
+            long BucketEndTime = hotRange[1];
+            long BucketInterval = BucketEndTime - BucketStartTime;
+            System.out.println("分桶法求解结果：" + "↓↓↓↓");
+            QueryFeaturesMeanShiftList.add(new FeatureofOneQuery(BucketStartTime, BucketInterval, BucketEndTime));
+            System.out.println(dateFormat.format(new Date((long) BucketStartTime)));
+            System.out.println(dateFormat.format(new Date((long) BucketEndTime)));
+            System.out.println("分桶法求解结果：" + "↑↑↑↑");
+        }
+        return hotIntervals;
+    }
+
+    /**
+     * 配合分桶计算热度方法，添加热点区间（含最小持续时间校验）
+     */
+    private static void addHotInterval(List<long[]> intervals, int startIdx, int endIdx,
+                                       long minTime, long bucketSize, long minDuration) {
+        long startTime = minTime + startIdx * bucketSize;
+        long endTime = minTime + (endIdx + 1) * bucketSize;
+
+        if (endTime - startTime >= minDuration) {
+            intervals.add(new long[]{startTime, endTime});
+        }
+    }
+
+    /**
+     * 配合分桶计算热度方法，合并重叠的时间区间
+     */
+    private static void mergeOverlappingIntervals(List<long[]> intervals) {
+        if (intervals.isEmpty()) return;
+        intervals.sort(Comparator.comparingLong(interval -> interval[0]));
+        int mergeIndex = 0;
+        for (int i = 1; i < intervals.size(); i++) {
+            long[] current = intervals.get(i);
+            long[] lastMerged = intervals.get(mergeIndex);
+            if (current[0] <= lastMerged[1]) { // 重叠检测
+                lastMerged[1] = Math.max(lastMerged[1], current[1]);
+            } else {
+                mergeIndex++;
+                intervals.set(mergeIndex, current);
+            }
+        }
+        // 移除合并后的多余元素
+        intervals.subList(mergeIndex + 1, intervals.size()).clear();
+    }
 
     /**
      * 使用meanShift相关的算法，传入一个随机点point，以这个点出发，寻找一个聚类中心
@@ -536,6 +676,10 @@ public class QueryMonitorYaos {
         ContextCTList.clear();
         QueryFeaturesGloablList.clear();
         QueryFeaturesMeanShiftList.clear();
+    }
+
+    public static void clearFileHotMap() {
+        FilsHotMap.clear();
     }
 
     /**
@@ -838,6 +982,19 @@ public class QueryMonitorYaos {
             // 返回封装后的数组
             return attributes;
 
+        }
+    }
+
+    /**
+     * 统计结果封装，用来帮助实现分桶计算热度的。
+     */
+    private static class StatsResult {
+        public final double mean;
+        public final double stdDev;
+
+        public StatsResult(double mean, double stdDev) {
+            this.mean = mean;
+            this.stdDev = stdDev;
         }
     }
 }
